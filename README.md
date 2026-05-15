@@ -131,7 +131,7 @@ FastAPIやReactなど未経験技術も含まれていたため、
 ## セットアップ
 
 ```powershell
-cd C:\Users\清水陽太\OneDrive\プログラミング\projrct\pfc_camera_app
+cd C:\Users\俺の本名\OneDrive\プログラミング\projrct\pfc_camera_app
 
 python -m venv .venv
 
