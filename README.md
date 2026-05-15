@@ -30,17 +30,30 @@ Eat + Take（撮影）から名付けた、
 
 ---
 
-## デモ
-
-### ホーム画面
-<!-- 画像を追加 -->
-<!-- ![home](images/home.png) -->
+## アプリ画面
 
 ### 撮影画面
-<!-- ![camera](images/camera.png) -->
 
-### ログ画面
-<!-- ![log](images/log.png) -->
+食事写真または栄養成分表示を撮影し、AIが栄養情報を推定します。
+
+![撮影画面](./images/camera.png)
+
+---
+
+### 1日ログ画面
+
+1日の合計カロリーやPFCバランスを自動集計します。  
+AIレビュー機能も搭載しています。
+
+![1日ログ画面](./images/daylog.png)
+
+---
+
+### 設定画面
+
+年齢・身長・体重・目的を保存し、AIレビューに反映します。
+
+![設定画面](./images/settings.png)
 
 ---
 
@@ -131,7 +144,7 @@ FastAPIやReactなど未経験技術も含まれていたため、
 ## セットアップ
 
 ```powershell
-cd C:\Users\俺の本名\OneDrive\プログラミング\projrct\pfc_camera_app
+cd C:\Users\俺の名前\OneDrive\プログラミング\projrct\pfc_camera_app
 
 python -m venv .venv
 
