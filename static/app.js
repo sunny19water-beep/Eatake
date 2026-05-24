@@ -1,7 +1,18 @@
 const { useEffect, useMemo, useRef, useState } = React;
 
 const emptyTotals = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, sugar: 0, salt: 0 };
-const defaultSettings = { age: "", weight: "", height: "", sex: "", purpose: "健康維持" };
+const defaultSettings = {
+  age: "",
+  weight: "",
+  height: "",
+  sex: "",
+  exercise_per_week: "",
+  target_weight: "",
+  target_weeks: "",
+  purpose: "健康維持",
+};
+const emptyProfile = { ready: false, bmi: 0, category: "未設定", target_daily_deficit: 0, kg_to_lose: 0, message: "" };
+const emptyEnergy = { ready: false, bmr: 0, tdee: 0, calories: 0, balance: 0, deficit: 0, surplus: 0, target_daily_deficit: 0, profile: emptyProfile, message: "" };
 
 function Stat({ label, value, unit, tone }) {
   return React.createElement(
@@ -40,6 +51,7 @@ function App() {
   const [aiUsage, setAiUsage] = useState({ limit: 10, used: 0, remaining: 10 });
   const [selectedDate, setSelectedDate] = useState("");
   const [totals, setTotals] = useState(emptyTotals);
+  const [energy, setEnergy] = useState(emptyEnergy);
   const [meals, setMeals] = useState([]);
   const [days, setDays] = useState([]);
   const [review, setReview] = useState(null);
@@ -47,6 +59,7 @@ function App() {
   const [weeklySummary, setWeeklySummary] = useState(null);
   const [weekData, setWeekData] = useState(null);
   const [settings, setSettings] = useState(defaultSettings);
+  const [profile, setProfile] = useState(emptyProfile);
   const [purposes, setPurposes] = useState(["ダイエット", "増量", "健康維持", "減量"]);
   const [cameraOn, setCameraOn] = useState(false);
   const [captureMode, setCaptureMode] = useState("meal");
@@ -101,6 +114,7 @@ function App() {
     const weekJson = await weekRes.json();
     setSelectedDate(todayData.date);
     setTotals(todayData.totals || emptyTotals);
+    setEnergy(todayData.energy || emptyEnergy);
     setMeals(todayData.meals || []);
     setReview(todayData.review || null);
     setStreak(todayData.streak || null);
@@ -109,6 +123,7 @@ function App() {
     setWeekData(weekJson);
     setDays(daysData.days || []);
     setSettings(settingsData.settings || defaultSettings);
+    setProfile(settingsData.profile || todayData.energy?.profile || emptyProfile);
     setPurposes(settingsData.purposes || purposes);
   }
 
@@ -124,6 +139,7 @@ function App() {
     const data = await response.json();
     setSelectedDate(data.date);
     setTotals(data.totals || emptyTotals);
+    setEnergy(data.energy || emptyEnergy);
     setMeals(data.meals || []);
     setReview(data.review || null);
   }
@@ -189,6 +205,7 @@ function App() {
       if (!response.ok) throw new Error(data.detail || "解析に失敗しました");
       setSelectedDate(data.meal.date);
       setTotals(data.totals);
+      setEnergy(data.energy || emptyEnergy);
       setMeals((current) => [data.meal, ...current.filter((meal) => meal.id !== data.meal.id)]);
       setDays(data.days || days);
       setReview(null);
@@ -217,6 +234,7 @@ function App() {
     const data = await response.json();
     if (response.ok) {
       setTotals(data.totals);
+      setEnergy(data.energy || emptyEnergy);
       setMeals(data.meals);
       setDays(data.days || days);
       setReview(null);
@@ -252,6 +270,7 @@ function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "設定の保存に失敗しました");
       setSettings(data.settings);
+      setProfile(data.profile || emptyProfile);
       setPurposes(data.purposes || purposes);
       setSettingsMessage("保存しました");
     } catch (error) {
@@ -277,6 +296,7 @@ function App() {
       setQuickText("");
       setSelectedDate(data.meal.date);
       setTotals(data.totals);
+      setEnergy(data.energy || emptyEnergy);
       setMeals((current) => [data.meal, ...current.filter((meal) => meal.id !== data.meal.id)]);
       setDays(data.days || days);
       setReview(null);
@@ -336,6 +356,65 @@ function App() {
       React.createElement(Stat, { label: "糖質", value: totals.sugar, unit: "g" }),
       React.createElement(Stat, { label: "食物繊維", value: totals.fiber, unit: "g" }),
       React.createElement(Stat, { label: "塩分", value: totals.salt, unit: "g" })
+    );
+  }
+
+  function renderEnergyBalance() {
+    const balanceText = energy.balance > 0 ? `+${energy.balance}` : `${energy.balance}`;
+    return React.createElement(
+      "section",
+      { className: "energyBox" },
+      React.createElement(
+        "div",
+        null,
+        React.createElement("span", null, "推定TDEE"),
+        React.createElement("strong", null, energy.ready ? `${energy.tdee} kcal` : "未設定"),
+        React.createElement("small", null, energy.ready ? `BMR ${energy.bmr} kcal` : energy.message || "設定を保存すると表示します")
+      ),
+      React.createElement(
+        "div",
+        null,
+        React.createElement("span", null, "摂取との差分"),
+        React.createElement("strong", { className: energy.balance <= 0 ? "deficit" : "surplus" }, energy.ready ? `${balanceText} kcal` : "-"),
+      React.createElement("small", null, energy.ready ? (energy.deficit > 0 ? `赤字 ${energy.deficit} kcal` : `超過 ${energy.surplus} kcal`) : "年齢・体重・身長・性別が必要")
+      ),
+      energy.ready &&
+        React.createElement(
+          "div",
+          null,
+          React.createElement("span", null, "目標赤字"),
+          React.createElement("strong", null, energy.target_daily_deficit ? `${energy.target_daily_deficit} kcal` : "-"),
+          React.createElement("small", null, energy.target_daily_deficit ? `目標まで ${energy.profile.kg_to_lose} kg` : "目標体重と週数を設定")
+        )
+    );
+  }
+
+  function renderAiNotice() {
+    return React.createElement(
+      "section",
+      { className: "aiNotice" },
+      "AI識別による推定値です。食事量や写り方で変わるため、大体の目安としてお考えください。"
+    );
+  }
+
+  function renderProfileSummary() {
+    return React.createElement(
+      "section",
+      { className: "profileSummary" },
+      React.createElement(
+        "div",
+        null,
+        React.createElement("span", null, "BMI"),
+        React.createElement("strong", null, profile.ready ? profile.bmi : "-"),
+        React.createElement("small", null, profile.category || "未設定")
+      ),
+      React.createElement(
+        "div",
+        null,
+        React.createElement("span", null, "目標赤字 / 日"),
+        React.createElement("strong", null, profile.target_daily_deficit ? `${profile.target_daily_deficit} kcal` : "-"),
+        React.createElement("small", null, profile.kg_to_lose ? `${profile.kg_to_lose} kg減を目標` : "目標体重と週数を設定")
+      )
     );
   }
 
@@ -440,6 +519,8 @@ function App() {
         })
       ),
       renderTotals(),
+      renderEnergyBalance(),
+      renderAiNotice(),
       renderQuickRecord()
     );
   }
@@ -455,6 +536,8 @@ function App() {
         React.createElement("p", null, selectedDate)
       ),
       renderTotals(),
+      renderEnergyBalance(),
+      renderAiNotice(),
       renderReviewBox(),
       renderEncouragement(),
       renderMealList("この日の記録はまだありません")
@@ -554,6 +637,8 @@ function App() {
         React.createElement("p", null, selectedDate)
       ),
       renderTotals(),
+      renderEnergyBalance(),
+      renderAiNotice(),
       renderReviewBox(),
       renderMealList("この日の記録はありません")
     );
@@ -626,6 +711,49 @@ function App() {
       React.createElement(
         "label",
         null,
+        "運動回数 / 週",
+        React.createElement(
+          "select",
+          {
+            value: settings.exercise_per_week,
+            onChange: (event) => setSetting("exercise_per_week", event.target.value),
+          },
+          React.createElement("option", { value: "" }, "未設定"),
+          React.createElement("option", { value: "0" }, "0回"),
+          React.createElement("option", { value: "1" }, "1回"),
+          React.createElement("option", { value: "2" }, "2回"),
+          React.createElement("option", { value: "3" }, "3回"),
+          React.createElement("option", { value: "4" }, "4回"),
+          React.createElement("option", { value: "5" }, "5回"),
+          React.createElement("option", { value: "6" }, "6回"),
+          React.createElement("option", { value: "7" }, "7回以上")
+        )
+      ),
+      React.createElement(
+        "label",
+        null,
+        "目標体重 kg",
+        React.createElement("input", {
+          type: "number",
+          inputMode: "decimal",
+          value: settings.target_weight,
+          onChange: (event) => setSetting("target_weight", event.target.value),
+        })
+      ),
+      React.createElement(
+        "label",
+        null,
+        "何週間で痩せたいか",
+        React.createElement("input", {
+          type: "number",
+          inputMode: "numeric",
+          value: settings.target_weeks,
+          onChange: (event) => setSetting("target_weeks", event.target.value),
+        })
+      ),
+      React.createElement(
+        "label",
+        null,
         "目的",
         React.createElement(
           "select",
@@ -633,6 +761,7 @@ function App() {
           purposes.map((purpose) => React.createElement("option", { key: purpose, value: purpose }, purpose))
         )
       ),
+      renderProfileSummary(),
       React.createElement(
         "button",
         { className: "primary wideButton", onClick: saveSettings, disabled: settingsBusy },

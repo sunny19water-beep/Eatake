@@ -46,6 +46,9 @@ DEFAULT_SETTINGS = {
     "weight": "",
     "height": "",
     "sex": "",
+    "exercise_per_week": "",
+    "target_weight": "",
+    "target_weeks": "",
     "purpose": "健康維持",
 }
 
@@ -366,6 +369,9 @@ def save_settings(payload: dict[str, Any], user_id: str | None = None) -> dict[s
         "weight": normalize_setting_text(payload.get("weight")),
         "height": normalize_setting_text(payload.get("height")),
         "sex": normalize_setting_text(payload.get("sex")),
+        "exercise_per_week": normalize_setting_text(payload.get("exercise_per_week")),
+        "target_weight": normalize_setting_text(payload.get("target_weight")),
+        "target_weeks": normalize_setting_text(payload.get("target_weeks")),
         "purpose": normalize_setting_text(payload.get("purpose")) or DEFAULT_SETTINGS["purpose"],
     }
     if settings["purpose"] not in PURPOSE_SET:
@@ -374,6 +380,12 @@ def save_settings(payload: dict[str, Any], user_id: str | None = None) -> dict[s
     for key in ("age", "weight", "height"):
         if settings[key] and clamp_number(settings[key], maximum=400) <= 0:
             raise HTTPException(status_code=400, detail=f"{key} は正の数値で入力してください。")
+    if settings["exercise_per_week"] and clamp_number(settings["exercise_per_week"], maximum=14) < 0:
+        raise HTTPException(status_code=400, detail="運動回数は0以上の数値で入力してください。")
+    if settings["target_weight"] and clamp_number(settings["target_weight"], maximum=400) <= 0:
+        raise HTTPException(status_code=400, detail="目標体重は正の数値で入力してください。")
+    if settings["target_weeks"] and clamp_number(settings["target_weeks"], maximum=260) <= 0:
+        raise HTTPException(status_code=400, detail="目標週数は正の数値で入力してください。")
 
     if STORAGE_BACKEND == "firestore":
         if not user_id:
@@ -421,6 +433,107 @@ def empty_totals() -> dict[str, float]:
         "fiber": 0,
         "sugar": 0,
         "salt": 0,
+    }
+
+
+def activity_factor(exercise_per_week: Any) -> float:
+    weekly = clamp_number(exercise_per_week, minimum=0, maximum=14)
+    if weekly <= 0:
+        return 1.2
+    if weekly <= 2:
+        return 1.375
+    if weekly <= 4:
+        return 1.55
+    if weekly <= 6:
+        return 1.725
+    return 1.9
+
+
+def calculate_tdee(settings: dict[str, str]) -> dict[str, Any]:
+    age = clamp_number(settings.get("age"), maximum=120)
+    weight = clamp_number(settings.get("weight"), maximum=400)
+    height = clamp_number(settings.get("height"), maximum=260)
+    sex = settings.get("sex", "")
+    if age <= 0 or weight <= 0 or height <= 0 or sex not in {"男性", "女性"}:
+        return {
+            "ready": False,
+            "bmr": 0,
+            "tdee": 0,
+            "activity_factor": activity_factor(settings.get("exercise_per_week")),
+            "message": "年齢・体重・身長・性別を設定するとTDEEを表示します。",
+        }
+
+    sex_offset = 5 if sex == "男性" else -161
+    bmr = (10 * weight) + (6.25 * height) - (5 * age) + sex_offset
+    factor = activity_factor(settings.get("exercise_per_week"))
+    tdee = bmr * factor
+    return {
+        "ready": True,
+        "bmr": round(bmr),
+        "tdee": round(tdee),
+        "activity_factor": factor,
+        "message": "推定TDEEを計算しました。",
+    }
+
+
+def bmi_category(bmi: float) -> str:
+    if bmi < 18.5:
+        return "低体重"
+    if bmi < 25:
+        return "普通体重"
+    if bmi < 30:
+        return "肥満1度"
+    if bmi < 35:
+        return "肥満2度"
+    if bmi < 40:
+        return "肥満3度"
+    return "肥満4度"
+
+
+def profile_metrics(settings: dict[str, str]) -> dict[str, Any]:
+    weight = clamp_number(settings.get("weight"), maximum=400)
+    height = clamp_number(settings.get("height"), maximum=260)
+    target_weight = clamp_number(settings.get("target_weight"), maximum=400)
+    target_weeks = clamp_number(settings.get("target_weeks"), maximum=260)
+
+    bmi = 0.0
+    category = "未設定"
+    if weight > 0 and height > 0:
+        bmi = weight / ((height / 100) ** 2)
+        category = bmi_category(bmi)
+
+    kg_to_lose = max(0, weight - target_weight) if weight > 0 and target_weight > 0 else 0
+    target_daily_deficit = 0
+    if kg_to_lose > 0 and target_weeks > 0:
+        target_daily_deficit = round((kg_to_lose * 7700) / (target_weeks * 7))
+
+    return {
+        "ready": weight > 0 and height > 0,
+        "bmi": round(bmi, 1) if bmi else 0,
+        "category": category,
+        "target_weight": round(target_weight, 1) if target_weight else 0,
+        "target_weeks": round(target_weeks) if target_weeks else 0,
+        "kg_to_lose": round(kg_to_lose, 1),
+        "target_daily_deficit": target_daily_deficit,
+        "message": "BMIと目標赤字を計算しました。" if bmi else "体重と身長を設定するとBMIを表示します。",
+    }
+
+
+def energy_summary(totals: dict[str, float], settings: dict[str, str]) -> dict[str, Any]:
+    tdee = calculate_tdee(settings)
+    profile = profile_metrics(settings)
+    calories = round(float(totals.get("calories", 0)))
+    balance = calories - int(tdee["tdee"])
+    if not tdee["ready"]:
+        balance = 0
+    return {
+        **tdee,
+        "calories": calories,
+        "balance": balance,
+        "deficit": max(0, -balance),
+        "surplus": max(0, balance),
+        "profile": profile,
+        "target_daily_deficit": profile["target_daily_deficit"],
     }
 
 
@@ -505,9 +618,11 @@ def day_payload(day: str, user_id: str | None = None) -> dict[str, Any]:
             "SELECT review, created_at FROM daily_reviews WHERE eaten_date = ?",
             (day,),
         ).fetchone()
+        totals = totals_for_day(conn, day)
         return {
             "date": day,
-            "totals": totals_for_day(conn, day),
+            "totals": totals,
+            "energy": energy_summary(totals, get_settings(conn)),
             "meals": meals_for_day(conn, day),
             "review": None
             if review_row is None
@@ -743,9 +858,11 @@ def firestore_day_payload(user_id: str, day: str) -> dict[str, Any]:
     review_snap = reviews_collection(user_id).document(day).get()
     review_data = review_snap.to_dict() if review_snap.exists else None
     meals = firestore_meals_for_day(user_id, day)
+    totals = sum_meals(meals)
     return {
         "date": day,
-        "totals": sum_meals(meals),
+        "totals": totals,
+        "energy": energy_summary(totals, get_settings(user_id=user_id)),
         "meals": meals,
         "review": None
         if not review_data
@@ -851,11 +968,15 @@ def profile_summary(settings: dict[str, str]) -> str:
         f"体重: {settings.get('weight') or '未設定'}kg、"
         f"身長: {settings.get('height') or '未設定'}cm、"
         f"性別: {settings.get('sex') or '未設定'}、"
+        f"運動: 週{settings.get('exercise_per_week') or '未設定'}回、"
+        f"目標体重: {settings.get('target_weight') or '未設定'}kg、"
+        f"目標期間: {settings.get('target_weeks') or '未設定'}週間、"
         f"目的: {settings.get('purpose') or '未設定'}"
     )
 
 
 def build_review_text(day: str, totals: dict[str, float], meals: list[dict[str, Any]], settings: dict[str, str]) -> str:
+    energy = energy_summary(totals, settings)
     meal_lines = "\n".join(
         f"- {meal['dish_name']}: {meal['calories']}kcal P{meal['protein']}g F{meal['fat']}g C{meal['carbs']}g 糖質{meal['sugar']}g 食物繊維{meal['fiber']}g 塩分{meal['salt']}g"
         for meal in meals
@@ -864,10 +985,15 @@ def build_review_text(day: str, totals: dict[str, float], meals: list[dict[str, 
 あなたはライト層向けの、やさしく褒める食事記録アプリのAIです。
 数値のダメ出しではなく、記録した行動そのものを褒めてください。
 「多い」「少ない」「不足」「注意」など責める言い方は避けてください。
-ユーザーの設定と1日の食事ログを見て、目的に合わせた短い応援コメントを日本語で返してください。
+ユーザーの設定、推定TDEE、1日の食事ログを見て、目的に合わせた短い応援コメントを日本語で返してください。
 
 日付: {day}
 ユーザー設定: {profile_summary(settings)}
+推定消費:
+- TDEE: {energy['tdee']}kcal
+- 摂取との差分: {energy['balance']}kcal
+- 目標に必要な1日赤字: {energy['target_daily_deficit']}kcal
+- BMI: {energy['profile']['bmi']} ({energy['profile']['category']})
 1日の合計:
 - カロリー: {totals['calories']}kcal
 - タンパク質: {totals['protein']}g
@@ -962,6 +1088,7 @@ async def estimate_nutrition(image: UploadFile, image_bytes: bytes) -> dict[str,
 返答は次のJSONだけにしてください。
 {
   "dish_name": "料理名",
+  "is_food": true,
   "calories": 0,
   "protein": 0,
   "fat": 0,
@@ -994,6 +1121,7 @@ caloriesはkcal、protein/fat/carbs/fiber/sugar/saltはg、confidenceは0.0か�
 
     return {
         "dish_name": str(result.get("dish_name") or "食事"),
+        "is_food": bool(result.get("is_food", True)),
         "calories": round(clamp_number(result.get("calories"))),
         "protein": round(clamp_number(result.get("protein"), maximum=500), 1),
         "fat": round(clamp_number(result.get("fat"), maximum=500), 1),
@@ -1035,6 +1163,7 @@ async def estimate_nutrition_label(image: UploadFile, image_bytes: bytes) -> dic
 返答は次のJSONだけにしてください。
 {
   "dish_name": "商品名または栄養成分表示",
+  "is_nutrition_label": true,
   "calories": 0,
   "protein": 0,
   "fat": 0,
@@ -1072,6 +1201,7 @@ caloriesはkcal、protein/fat/carbs/fiber/sugar/saltはgです。
 
     return {
         "dish_name": str(result.get("dish_name") or "栄養成分表示"),
+        "is_nutrition_label": bool(result.get("is_nutrition_label", True)),
         "calories": round(clamp_number(result.get("calories"))),
         "protein": round(clamp_number(result.get("protein"), maximum=500), 1),
         "fat": round(clamp_number(result.get("fat"), maximum=500), 1),
@@ -1102,6 +1232,21 @@ def normalize_estimate(result: dict[str, Any], fallback_name: str) -> dict[str, 
         "confidence": round(clamp_number(result.get("confidence"), maximum=1), 2),
         "notes": str(result.get("notes") or ""),
     }
+
+
+def reject_if_not_food(estimate: dict[str, Any]) -> None:
+    dish_name = str(estimate.get("dish_name") or "")
+    notes = str(estimate.get("notes") or "")
+    looks_empty = estimate.get("calories", 0) <= 0 and estimate.get("protein", 0) <= 0 and estimate.get("carbs", 0) <= 0
+    says_no_food = any(word in f"{dish_name} {notes}" for word in ("料理なし", "食事なし", "食品なし", "食べ物なし"))
+    if estimate.get("is_food") is False or says_no_food or looks_empty:
+        raise HTTPException(status_code=400, detail="食事として識別できませんでした。料理が写っている写真で撮り直してください。")
+
+
+def reject_if_not_label(estimate: dict[str, Any]) -> None:
+    looks_empty = estimate.get("calories", 0) <= 0 and estimate.get("protein", 0) <= 0 and estimate.get("carbs", 0) <= 0
+    if estimate.get("is_nutrition_label") is False or looks_empty:
+        raise HTTPException(status_code=400, detail="栄養成分表示として読み取れませんでした。表示全体が写るように撮り直してください。")
 
 
 def estimate_text_meal(text: str) -> dict[str, Any]:
@@ -1282,13 +1427,15 @@ def get_day(day: str, request: Request) -> dict[str, Any]:
 
 @app.get("/api/settings")
 def read_settings(request: Request) -> dict[str, Any]:
-    return {"settings": get_settings(user_id=scoped_user_id(request)), "purposes": PURPOSES}
+    settings = get_settings(user_id=scoped_user_id(request))
+    return {"settings": settings, "purposes": PURPOSES, "profile": profile_metrics(settings)}
 
 
 @app.put("/api/settings")
 def update_settings(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     user_id = scoped_user_id(request)
-    return {"settings": save_settings(payload, user_id), "purposes": PURPOSES}
+    settings = save_settings(payload, user_id)
+    return {"settings": settings, "purposes": PURPOSES, "profile": profile_metrics(settings)}
 
 
 @app.post("/api/days/{day}/review")
@@ -1366,9 +1513,11 @@ def save_meal_estimate(estimate: dict[str, Any], user_id: str | None = None) -> 
             }
         )
         meal = firestore_meal_to_dict(doc_ref.get())
+        totals = firestore_totals_for_day(user_id, day)
         return {
             "meal": meal,
-            "totals": firestore_totals_for_day(user_id, day),
+            "totals": totals,
+            "energy": energy_summary(totals, get_settings(user_id=user_id)),
             "days": firestore_available_days(user_id),
         }
 
@@ -1398,9 +1547,11 @@ def save_meal_estimate(estimate: dict[str, Any], user_id: str | None = None) -> 
         )
         row = conn.execute("SELECT * FROM meals WHERE id = ?", (cursor.lastrowid,)).fetchone()
         meal = row_to_meal(row)
+        totals = totals_for_day(conn, day)
         payload = {
             "meal": meal,
-            "totals": totals_for_day(conn, day),
+            "totals": totals,
+            "energy": energy_summary(totals, get_settings(conn)),
             "days": available_days(conn),
         }
     return payload
@@ -1412,6 +1563,7 @@ async def analyze_image(request: Request, file: UploadFile = File(...)) -> dict[
     user_id = scoped_user_id(request)
     quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
     estimate = await estimate_nutrition(file, image_bytes)
+    reject_if_not_food(estimate)
     result = save_meal_estimate(estimate, user_id)
     result["ai_usage"] = quota
     return result
@@ -1423,6 +1575,7 @@ async def analyze_label(request: Request, file: UploadFile = File(...)) -> dict[
     user_id = scoped_user_id(request)
     quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
     estimate = await estimate_nutrition_label(file, image_bytes)
+    reject_if_not_label(estimate)
     result = save_meal_estimate(estimate, user_id)
     result["ai_usage"] = quota
     return result
@@ -1440,9 +1593,11 @@ def delete_meal(meal_id: str, request: Request) -> dict[str, Any]:
             raise HTTPException(status_code=404, detail="記録が見つかりません。")
         day = (snap.to_dict() or {}).get("eaten_date", today_key())
         doc_ref.delete()
+        totals = firestore_totals_for_day(user_id, day)
         return {
             "date": day,
-            "totals": firestore_totals_for_day(user_id, day),
+            "totals": totals,
+            "energy": energy_summary(totals, get_settings(user_id=user_id)),
             "meals": firestore_meals_for_day(user_id, day),
             "days": firestore_available_days(user_id),
         }
@@ -1453,9 +1608,11 @@ def delete_meal(meal_id: str, request: Request) -> dict[str, Any]:
             raise HTTPException(status_code=404, detail="記録が見つかりません。")
         day = row["eaten_date"]
         conn.execute("DELETE FROM meals WHERE id = ?", (int(meal_id),))
+        totals = totals_for_day(conn, day)
         return {
             "date": day,
-            "totals": totals_for_day(conn, day),
+            "totals": totals,
+            "energy": energy_summary(totals, get_settings(conn)),
             "meals": meals_for_day(conn, day),
             "days": available_days(conn),
         }

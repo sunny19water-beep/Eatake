@@ -145,6 +145,42 @@ h2 {
   font-size: 42px;
 }
 
+.energyBox {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin: -6px 0 16px;
+}
+
+.energyBox > div {
+  min-height: 96px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.energyBox span,
+.energyBox small {
+  display: block;
+  color: var(--muted);
+}
+
+.energyBox strong {
+  display: block;
+  margin: 7px 0 2px;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.energyBox .deficit {
+  color: var(--green);
+}
+
+.energyBox .surplus {
+  color: var(--red);
+}
+
 .camera {
   position: relative;
   overflow: hidden;
@@ -406,6 +442,10 @@ h2 {
   }
 
   .reviewBox {
+    grid-template-columns: 1fr;
+  }
+
+  .energyBox {
     grid-template-columns: 1fr;
   }
 
