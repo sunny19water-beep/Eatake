@@ -111,6 +111,7 @@ python -m venv .venv
 ```env
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-2.5-flash
+AI_DAILY_LIMIT=10
 STORAGE_BACKEND=sqlite
 APP_BASE_URL=http://127.0.0.1:8000
 ```
@@ -144,9 +145,44 @@ gcloud run deploy eatake `
   --source . `
   --region asia-northeast1 `
   --allow-unauthenticated `
-  --set-env-vars STORAGE_BACKEND=firestore,GEMINI_MODEL=gemini-2.5-flash,APP_BASE_URL=https://TEMP.example.com `
+  --set-env-vars STORAGE_BACKEND=firestore,GEMINI_MODEL=gemini-2.5-flash,AI_DAILY_LIMIT=10,APP_BASE_URL=https://TEMP.example.com `
   --set-secrets GEMINI_API_KEY=gemini-api-key:latest,LINE_CHANNEL_ID=line-channel-id:latest,LINE_CHANNEL_SECRET=line-channel-secret:latest
 ```
+
+## Renderで自動デプロイ
+
+Renderで一度URLを作ってスマホに入れるなら、この方法だけ見ればOKです。このリポジトリをGitHubにpushして、RenderのBlueprintとして `render.yaml` を読み込ませます。GitHub連携後はpushするたびに自動デプロイされます。
+
+1. GitHubにこのプロジェクトをpush
+2. Render Dashboardで `New` → `Blueprint`
+3. GitHubリポジトリを選択
+4. `render.yaml` を使って作成
+5. Renderに聞かれる環境変数へ以下を設定
+
+```txt
+GEMINI_API_KEY=あなたのGemini APIキー
+LINE_CHANNEL_ID=LINEのChannel ID
+LINE_CHANNEL_SECRET=LINEのChannel Secret
+GOOGLE_APPLICATION_CREDENTIALS_JSON=Firestore用サービスアカウントJSONを1行で貼り付け
+```
+
+`APP_BASE_URL` はRenderの `RENDER_EXTERNAL_URL` を自動利用します。独自ドメインを使う時だけ、Environmentで `APP_BASE_URL=https://独自ドメイン` を追加してください。
+
+LINE Developers ConsoleのCallback URLには次を入れます。
+
+```txt
+https://あなたのrender-url.onrender.com/auth/line/callback
+```
+
+RenderでURLが発行されたあと、LINE Developers ConsoleにCallback URLを追加し、Renderで `Manual Deploy` → `Deploy latest commit` を押してください。
+
+Renderの無料Web Serviceはローカルファイルが再起動や再デプロイで消えるため、SQLite保存のまま本番運用するのは危険です。この設定では `STORAGE_BACKEND=firestore` にして、食事ログや回数制限をFirestoreへ保存します。
+
+## スマホアプリ化
+
+まずはPWAとして使えます。RenderのURLをスマホで開いて、ブラウザの「ホーム画面に追加」を押してください。アプリ風に全画面で起動します。
+
+ストア配布したくなったら、同じURL/フロントをCapacitorで包んで iOS / Android アプリにできます。
 
 表示された Cloud Run URL を LINE Developers Console の Callback URL に設定します。
 
@@ -161,7 +197,7 @@ gcloud run deploy eatake `
   --source . `
   --region asia-northeast1 `
   --allow-unauthenticated `
-  --set-env-vars STORAGE_BACKEND=firestore,GEMINI_MODEL=gemini-2.5-flash,APP_BASE_URL=https://YOUR_CLOUD_RUN_URL `
+  --set-env-vars STORAGE_BACKEND=firestore,GEMINI_MODEL=gemini-2.5-flash,AI_DAILY_LIMIT=10,APP_BASE_URL=https://YOUR_CLOUD_RUN_URL `
   --set-secrets GEMINI_API_KEY=gemini-api-key:latest,LINE_CHANNEL_ID=line-channel-id:latest,LINE_CHANNEL_SECRET=line-channel-secret:latest
 ```
 

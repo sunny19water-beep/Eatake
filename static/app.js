@@ -37,6 +37,7 @@ function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authRequired, setAuthRequired] = useState(false);
   const [authUser, setAuthUser] = useState(null);
+  const [aiUsage, setAiUsage] = useState({ limit: 10, used: 0, remaining: 10 });
   const [selectedDate, setSelectedDate] = useState("");
   const [totals, setTotals] = useState(emptyTotals);
   const [meals, setMeals] = useState([]);
@@ -79,6 +80,7 @@ function App() {
     const authData = await authRes.json();
     setAuthRequired(Boolean(authData.auth_required));
     setAuthUser(authData.user || null);
+    setAiUsage(authData.ai_usage || aiUsage);
     setAuthReady(true);
     if (authData.auth_required && !authData.user) return;
 
@@ -103,6 +105,7 @@ function App() {
     setReview(todayData.review || null);
     setStreak(todayData.streak || null);
     setWeeklySummary(todayData.weekly_summary || null);
+    setAiUsage(todayData.ai_usage || aiUsage);
     setWeekData(weekJson);
     setDays(daysData.days || []);
     setSettings(settingsData.settings || defaultSettings);
@@ -189,6 +192,7 @@ function App() {
       setMeals((current) => [data.meal, ...current.filter((meal) => meal.id !== data.meal.id)]);
       setDays(data.days || days);
       setReview(null);
+      setAiUsage(data.ai_usage || aiUsage);
       setLastRecordTaps(tapCount + 1);
       setTapCount(0);
       setMessage(captureMode === "label" ? "栄養成分表示の数値を採用しました" : "今日の合計に自動加算しました");
@@ -228,6 +232,7 @@ function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "レビュー作成に失敗しました");
       setReview(data.review);
+      setAiUsage(data.ai_usage || aiUsage);
     } catch (error) {
       setReview({ text: error.message, created_at: "" });
     } finally {
@@ -275,6 +280,7 @@ function App() {
       setMeals((current) => [data.meal, ...current.filter((meal) => meal.id !== data.meal.id)]);
       setDays(data.days || days);
       setReview(null);
+      setAiUsage(data.ai_usage || aiUsage);
       setLastRecordTaps(1);
       setTapCount(0);
       setMessage("てきとう記録、ちゃんと残せました");
@@ -295,6 +301,7 @@ function App() {
       { className: "encouragement" },
       React.createElement("strong", null, streak ? streak.message : "今日も1枚だけでOK"),
       weeklySummary?.show && React.createElement("span", null, weeklySummary.text),
+      React.createElement("small", null, `AI解析 あと${aiUsage.remaining}回 / 1日${aiUsage.limit}回`),
       lastRecordTaps && React.createElement("small", null, `記録完了まで ${lastRecordTaps} タップ`)
     );
   }

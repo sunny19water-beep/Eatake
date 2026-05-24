@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from google.cloud import firestore
 from google import genai
 from google.genai import types
+from google.oauth2 import service_account
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -26,9 +27,14 @@ LOG_RETENTION_DAYS = 90
 load_dotenv(BASE_DIR / ".env")
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "sqlite").lower()
-APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+APP_BASE_URL = (
+    os.getenv("APP_BASE_URL")
+    or os.getenv("RENDER_EXTERNAL_URL")
+    or "http://127.0.0.1:8000"
+).rstrip("/")
 SESSION_COOKIE = "eatake_session"
 SESSION_DAYS = 30
+AI_DAILY_LIMIT = int(os.getenv("AI_DAILY_LIMIT", "10"))
 
 app = FastAPI(title="PFC Camera Logger")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -49,7 +55,16 @@ _firestore_client: firestore.Client | None = None
 def fs() -> firestore.Client:
     global _firestore_client
     if _firestore_client is None:
-        _firestore_client = firestore.Client()
+        credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+        if credentials_json:
+            credentials_info = json.loads(credentials_json)
+            credentials = service_account.Credentials.from_service_account_info(credentials_info)
+            _firestore_client = firestore.Client(
+                project=credentials_info.get("project_id"),
+                credentials=credentials,
+            )
+        else:
+            _firestore_client = firestore.Client()
     return _firestore_client
 
 
@@ -160,6 +175,72 @@ def scoped_user_id(request: Request) -> str | None:
     return require_user(request)["id"]
 
 
+def ai_limit_detail() -> str:
+    return f"今日のAI解析は{AI_DAILY_LIMIT}回までです。明日また使えます。"
+
+
+def usage_status(user_id: str | None = None) -> dict[str, int]:
+    day = today_key()
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            return {"limit": AI_DAILY_LIMIT, "used": 0, "remaining": AI_DAILY_LIMIT}
+        snap = user_doc(user_id).collection("usage").document(day).get()
+        used = int((snap.to_dict() or {}).get("ai_count", 0)) if snap.exists else 0
+    else:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT count FROM ai_usage WHERE scope = ? AND usage_date = ?",
+                ("local", day),
+            ).fetchone()
+            used = int(row["count"]) if row else 0
+    return {"limit": AI_DAILY_LIMIT, "used": used, "remaining": max(0, AI_DAILY_LIMIT - used)}
+
+
+def consume_ai_quota(user_id: str | None = None) -> dict[str, int]:
+    day = today_key()
+    if AI_DAILY_LIMIT <= 0:
+        return {"limit": AI_DAILY_LIMIT, "used": 0, "remaining": 0}
+
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        doc_ref = user_doc(user_id).collection("usage").document(day)
+        transaction = fs().transaction()
+
+        @firestore.transactional
+        def update_in_transaction(txn, ref):
+            snap = ref.get(transaction=txn)
+            used = int((snap.to_dict() or {}).get("ai_count", 0)) if snap.exists else 0
+            if used >= AI_DAILY_LIMIT:
+                raise HTTPException(status_code=429, detail=ai_limit_detail())
+            next_used = used + 1
+            txn.set(ref, {"date": day, "ai_count": next_used, "updated_at": now_key()}, merge=True)
+            return {"limit": AI_DAILY_LIMIT, "used": next_used, "remaining": AI_DAILY_LIMIT - next_used}
+
+        return update_in_transaction(transaction, doc_ref)
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT count FROM ai_usage WHERE scope = ? AND usage_date = ?",
+            ("local", day),
+        ).fetchone()
+        used = int(row["count"]) if row else 0
+        if used >= AI_DAILY_LIMIT:
+            raise HTTPException(status_code=429, detail=ai_limit_detail())
+        next_used = used + 1
+        conn.execute(
+            """
+            INSERT INTO ai_usage (scope, usage_date, count, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(scope, usage_date) DO UPDATE SET
+                count = excluded.count,
+                updated_at = excluded.updated_at
+            """,
+            ("local", day, next_used, now_key()),
+        )
+        return {"limit": AI_DAILY_LIMIT, "used": next_used, "remaining": AI_DAILY_LIMIT - next_used}
+
+
 def get_db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -206,6 +287,17 @@ def init_db() -> None:
                 eaten_date TEXT PRIMARY KEY,
                 created_at TEXT NOT NULL,
                 review TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_usage (
+                scope TEXT NOT NULL,
+                usage_date TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (scope, usage_date)
             )
             """
         )
@@ -1071,12 +1163,20 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok", "storage": STORAGE_BACKEND}
+
+
 @app.get("/api/auth/me")
 def auth_me(request: Request) -> dict[str, Any]:
+    user = current_user(request)
+    user_id = user["id"] if user and STORAGE_BACKEND == "firestore" else None
     return {
         "auth_required": STORAGE_BACKEND == "firestore",
-        "user": public_user(current_user(request)),
+        "user": public_user(user),
         "provider": "line",
+        "ai_usage": usage_status(user_id),
     }
 
 
@@ -1157,6 +1257,7 @@ def get_today(request: Request) -> dict[str, Any]:
     payload = day_payload(today_key(), user_id)
     payload["streak"] = streak_status(user_id)
     payload["weekly_summary"] = weekly_summary(user_id)
+    payload["ai_usage"] = usage_status(user_id)
     return payload
 
 
@@ -1203,7 +1304,9 @@ def create_daily_review(day: str, request: Request) -> dict[str, Any]:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         text = demo_review(day, payload["totals"], settings)
+        quota = usage_status(user_id)
     else:
+        quota = consume_ai_quota(user_id)
         client = genai.Client(api_key=api_key)
         try:
             response = client.models.generate_content(
@@ -1213,14 +1316,17 @@ def create_daily_review(day: str, request: Request) -> dict[str, Any]:
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Gemini API error: {exc}")
         text = (response.text or "").strip() or demo_review(day, payload["totals"], settings)
-    return {"review": save_review(day, text, user_id)}
+    return {"review": save_review(day, text, user_id), "ai_usage": quota}
 
 
 @app.post("/api/analyze-text")
 def analyze_text(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    estimate = estimate_text_meal(str(payload.get("text") or ""))
     user_id = scoped_user_id(request)
-    return save_meal_estimate(estimate, user_id)
+    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    estimate = estimate_text_meal(str(payload.get("text") or ""))
+    result = save_meal_estimate(estimate, user_id)
+    result["ai_usage"] = quota
+    return result
 
 
 async def read_image(file: UploadFile) -> bytes:
@@ -1303,17 +1409,23 @@ def save_meal_estimate(estimate: dict[str, Any], user_id: str | None = None) -> 
 @app.post("/api/analyze")
 async def analyze_image(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     image_bytes = await read_image(file)
-    estimate = await estimate_nutrition(file, image_bytes)
     user_id = scoped_user_id(request)
-    return save_meal_estimate(estimate, user_id)
+    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    estimate = await estimate_nutrition(file, image_bytes)
+    result = save_meal_estimate(estimate, user_id)
+    result["ai_usage"] = quota
+    return result
 
 
 @app.post("/api/analyze-label")
 async def analyze_label(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     image_bytes = await read_image(file)
-    estimate = await estimate_nutrition_label(file, image_bytes)
     user_id = scoped_user_id(request)
-    return save_meal_estimate(estimate, user_id)
+    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    estimate = await estimate_nutrition_label(file, image_bytes)
+    result = save_meal_estimate(estimate, user_id)
+    result["ai_usage"] = quota
+    return result
 
 
 @app.delete("/api/meals/{meal_id}")
