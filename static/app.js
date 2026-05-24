@@ -34,6 +34,9 @@ function MealItem({ meal, onDelete }) {
 
 function App() {
   const [view, setView] = useState("camera");
+  const [authReady, setAuthReady] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [totals, setTotals] = useState(emptyTotals);
   const [meals, setMeals] = useState([]);
@@ -72,6 +75,13 @@ function App() {
   }, []);
 
   async function refreshAll() {
+    const authRes = await fetch("/api/auth/me");
+    const authData = await authRes.json();
+    setAuthRequired(Boolean(authData.auth_required));
+    setAuthUser(authData.user || null);
+    setAuthReady(true);
+    if (authData.auth_required && !authData.user) return;
+
     const [todayRes, daysRes, settingsRes, weekRes] = await Promise.all([
       fetch("/api/today"),
       fetch("/api/days"),
@@ -79,6 +89,11 @@ function App() {
       fetch("/api/week"),
     ]);
     const todayData = await todayRes.json();
+    if (todayRes.status === 401) {
+      setAuthRequired(true);
+      setAuthUser(null);
+      return;
+    }
     const daysData = await daysRes.json();
     const settingsData = await settingsRes.json();
     const weekJson = await weekRes.json();
@@ -92,6 +107,12 @@ function App() {
     setDays(daysData.days || []);
     setSettings(settingsData.settings || defaultSettings);
     setPurposes(settingsData.purposes || purposes);
+  }
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setAuthUser(null);
+    setAuthRequired(true);
   }
 
   async function loadDay(day) {
@@ -536,6 +557,19 @@ function App() {
       "section",
       { className: "settingsPanel" },
       React.createElement("h2", null, "設定"),
+      authUser &&
+        React.createElement(
+          "div",
+          { className: "accountBox" },
+          authUser.picture && React.createElement("img", { src: authUser.picture, alt: "" }),
+          React.createElement(
+            "div",
+            null,
+            React.createElement("strong", null, authUser.name || "LINEユーザー"),
+            React.createElement("span", null, "LINEログイン中")
+          ),
+          React.createElement("button", { className: "ghost", onClick: logout }, "ログアウト")
+        ),
       React.createElement(
         "label",
         null,
@@ -599,6 +633,33 @@ function App() {
       ),
       settingsMessage && React.createElement("p", { className: "formMessage" }, settingsMessage)
     );
+  }
+
+  function renderLogin() {
+    return React.createElement(
+      "main",
+      { className: "shell loginShell" },
+      React.createElement(
+        "section",
+        { className: "loginPanel" },
+        React.createElement("p", { className: "eyebrow" }, "Eatake"),
+        React.createElement("h1", null, "撮るだけで記録"),
+        React.createElement("p", null, "LINEでログインすると、あなたの食事ログを安全にクラウド保存できます。"),
+        React.createElement("a", { className: "lineButton", href: "/auth/line/login" }, "LINEでログイン")
+      )
+    );
+  }
+
+  if (!authReady) {
+    return React.createElement(
+      "main",
+      { className: "shell loginShell" },
+      React.createElement("section", { className: "loginPanel" }, React.createElement("p", null, "読み込み中"))
+    );
+  }
+
+  if (authRequired && !authUser) {
+    return renderLogin();
   }
 
   return React.createElement(

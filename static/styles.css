@@ -28,6 +28,11 @@ button {
   cursor: pointer;
 }
 
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
 button:disabled {
   cursor: wait;
   opacity: 0.65;
@@ -316,6 +321,60 @@ h2 {
   font-weight: 700;
 }
 
+.loginShell {
+  display: grid;
+  align-items: center;
+}
+
+.loginPanel {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.loginPanel p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.lineButton {
+  display: grid;
+  place-items: center;
+  min-height: 54px;
+  border-radius: 8px;
+  background: #06c755;
+  color: white;
+  font-weight: 900;
+}
+
+.accountBox {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7faf8;
+}
+
+.accountBox img {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.accountBox span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 @media (max-width: 420px) {
   .shell {
     padding: 14px;
@@ -348,5 +407,13 @@ h2 {
 
   .reviewBox {
     grid-template-columns: 1fr;
+  }
+
+  .accountBox {
+    grid-template-columns: 42px 1fr;
+  }
+
+  .accountBox .ghost {
+    grid-column: 1 / -1;
   }
 }

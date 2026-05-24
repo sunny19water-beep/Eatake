@@ -14,7 +14,8 @@ Eat + Take（撮影）から名付けた、
 特に、自分自身が食事管理を行う中で、
 食品検索、栄養成分入力や細かい記録作業の負担が大きく、「もっと簡単に続けられる方法が欲しい」と考えたことが、このアプリを作ったきっかけです。
 そこで写真を撮るだけで食事記録を完了できるアプリをテーマに開発を行いました。
-食事写真を Gemini API で解析し、栄養情報を推定してSQLiteへ保存します。  
+食事写真を Gemini API で解析し、栄養情報を推定して保存します。  
+ローカル開発では SQLite、本番の Cloud Run では Firestore と LINEログインを使います。
 また、栄養成分表示の写真を読み取るモードも実装し、パッケージ食品などでは表示値を優先して記録できるようにしています。
 
 ## アプリ画面
@@ -86,7 +87,9 @@ AIレビュー機能も搭載しています。
 ### Backend
 - Python
 - FastAPI
-- SQLite
+- SQLite（ローカル）
+- Firestore（Cloud Run本番）
+- LINEログイン
 
 ### Frontend
 - React
@@ -94,6 +97,73 @@ AIレビュー機能も搭載しています。
 
 ### AI / API
 - Gemini API
+
+## ローカル起動
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
+```
+
+`.env` はローカルなら次の形で動きます。
+
+```env
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-2.5-flash
+STORAGE_BACKEND=sqlite
+APP_BASE_URL=http://127.0.0.1:8000
+```
+
+## Cloud Run デプロイ
+
+このPCには現時点で `gcloud` が入っていないため、こちらから直接デプロイはまだできません。Google Cloud SDK を入れてログインしたら、プロジェクト直下で次を実行します。
+
+```powershell
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com firestore.googleapis.com secretmanager.googleapis.com
+gcloud firestore databases create --database="(default)" --location=asia-northeast1
+```
+
+APIキーやLINEシークレットは、Cloud Runの環境変数に直書きせず Secret Manager に入れるのがおすすめです。
+
+```powershell
+gcloud secrets create gemini-api-key --replication-policy=automatic
+gcloud secrets versions add gemini-api-key --data-file=YOUR_GEMINI_KEY_TEXT_FILE
+gcloud secrets create line-channel-id --replication-policy=automatic
+gcloud secrets versions add line-channel-id --data-file=YOUR_LINE_CHANNEL_ID_TEXT_FILE
+gcloud secrets create line-channel-secret --replication-policy=automatic
+gcloud secrets versions add line-channel-secret --data-file=YOUR_LINE_CHANNEL_SECRET_TEXT_FILE
+```
+
+まず1回目は仮の `APP_BASE_URL` でデプロイして Cloud Run のURLを取得します。
+
+```powershell
+gcloud run deploy eatake `
+  --source . `
+  --region asia-northeast1 `
+  --allow-unauthenticated `
+  --set-env-vars STORAGE_BACKEND=firestore,GEMINI_MODEL=gemini-2.5-flash,APP_BASE_URL=https://TEMP.example.com `
+  --set-secrets GEMINI_API_KEY=gemini-api-key:latest,LINE_CHANNEL_ID=line-channel-id:latest,LINE_CHANNEL_SECRET=line-channel-secret:latest
+```
+
+表示された Cloud Run URL を LINE Developers Console の Callback URL に設定します。
+
+```txt
+https://YOUR_CLOUD_RUN_URL/auth/line/callback
+```
+
+その後、`APP_BASE_URL` を本物のURLにして再デプロイします。
+
+```powershell
+gcloud run deploy eatake `
+  --source . `
+  --region asia-northeast1 `
+  --allow-unauthenticated `
+  --set-env-vars STORAGE_BACKEND=firestore,GEMINI_MODEL=gemini-2.5-flash,APP_BASE_URL=https://YOUR_CLOUD_RUN_URL `
+  --set-secrets GEMINI_API_KEY=gemini-api-key:latest,LINE_CHANNEL_ID=line-channel-id:latest,LINE_CHANNEL_SECRET=line-channel-secret:latest
+```
 
 
 ## AIコーディングについて

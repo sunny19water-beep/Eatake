@@ -4,3 +4,5 @@ python-multipart
 google-genai
 pillow
 python-dotenv
+google-cloud-firestore
+httpx

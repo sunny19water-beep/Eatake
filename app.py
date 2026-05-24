@@ -1,14 +1,18 @@
 import json
 import os
+import secrets
 import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+import httpx
+from fastapi import Body, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from google.cloud import firestore
 from google import genai
 from google.genai import types
 
@@ -21,6 +25,10 @@ LOG_RETENTION_DAYS = 90
 
 load_dotenv(BASE_DIR / ".env")
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "sqlite").lower()
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+SESSION_COOKIE = "eatake_session"
+SESSION_DAYS = 30
 
 app = FastAPI(title="PFC Camera Logger")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -35,6 +43,122 @@ DEFAULT_SETTINGS = {
     "purpose": "健康維持",
 }
 
+_firestore_client: firestore.Client | None = None
+
+
+def fs() -> firestore.Client:
+    global _firestore_client
+    if _firestore_client is None:
+        _firestore_client = firestore.Client()
+    return _firestore_client
+
+
+def now_key() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def public_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not user:
+        return None
+    return {
+        "id": user.get("id"),
+        "name": user.get("name", ""),
+        "picture": user.get("picture", ""),
+        "provider": user.get("provider", ""),
+    }
+
+
+def require_user(request: Request) -> dict[str, Any]:
+    user = current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+    return user
+
+
+def current_user(request: Request) -> dict[str, Any] | None:
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    if STORAGE_BACKEND == "firestore":
+        snap = fs().collection("sessions").document(token).get()
+        if not snap.exists:
+            return None
+        session = snap.to_dict() or {}
+        if session.get("expires_at", "") <= now_key():
+            fs().collection("sessions").document(token).delete()
+            return None
+        user_snap = fs().collection("users").document(str(session.get("user_id"))).get()
+        if not user_snap.exists:
+            return None
+        return user_snap.to_dict()
+    return None
+
+
+def create_line_session(response: Response, profile: dict[str, Any]) -> None:
+    user_id = str(profile.get("sub") or profile.get("userId") or "")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="LINEユーザーIDを取得できませんでした。")
+    user = {
+        "id": user_id,
+        "provider": "line",
+        "name": profile.get("name") or profile.get("displayName") or "",
+        "picture": profile.get("picture") or profile.get("pictureUrl") or "",
+        "email": profile.get("email", ""),
+        "updated_at": now_key(),
+    }
+    if STORAGE_BACKEND == "firestore":
+        fs().collection("users").document(user_id).set(user, merge=True)
+        token = secrets.token_urlsafe(32)
+        fs().collection("sessions").document(token).set(
+            {
+                "user_id": user_id,
+                "created_at": now_key(),
+                "expires_at": (datetime.now() + timedelta(days=30)).isoformat(timespec="seconds"),
+            }
+        )
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            max_age=60 * 60 * 24 * SESSION_DAYS,
+            httponly=True,
+            secure=APP_BASE_URL.startswith("https://"),
+            samesite="lax",
+        )
+
+
+def clear_session(response: Response, request: Request) -> None:
+    token = request.cookies.get(SESSION_COOKIE)
+    if token and STORAGE_BACKEND == "firestore":
+        fs().collection("sessions").document(token).delete()
+    response.delete_cookie(SESSION_COOKIE)
+
+
+def remember_line_state() -> str:
+    state = secrets.token_urlsafe(24)
+    if STORAGE_BACKEND == "firestore":
+        fs().collection("auth_states").document(state).set({"provider": "line", "created_at": now_key()})
+    return state
+
+
+def consume_line_state(state: str) -> None:
+    if STORAGE_BACKEND != "firestore":
+        return
+    ref = fs().collection("auth_states").document(state)
+    snap = ref.get()
+    if not snap.exists:
+        raise HTTPException(status_code=400, detail="LINEログイン状態の確認に失敗しました。")
+    created = (snap.to_dict() or {}).get("created_at", "")
+    if created < (datetime.now() - timedelta(minutes=10)).isoformat(timespec="seconds"):
+        ref.delete()
+        raise HTTPException(status_code=400, detail="LINEログインの有効期限が切れました。")
+    ref.delete()
+
+
+def scoped_user_id(request: Request) -> str | None:
+    if STORAGE_BACKEND != "firestore":
+        return None
+    return require_user(request)["id"]
+
 
 def get_db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -44,6 +168,8 @@ def get_db() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    if STORAGE_BACKEND == "firestore":
+        return
     with get_db() as conn:
         conn.execute(
             """
@@ -120,7 +246,16 @@ def normalize_setting_text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def get_settings(conn: sqlite3.Connection | None = None) -> dict[str, str]:
+def get_settings(conn: sqlite3.Connection | None = None, user_id: str | None = None) -> dict[str, str]:
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        snap = fs().collection("users").document(user_id).collection("meta").document("settings").get()
+        settings = DEFAULT_SETTINGS.copy()
+        if snap.exists:
+            settings.update(snap.to_dict() or {})
+        return settings
+
     owns_connection = conn is None
     if conn is None:
         conn = get_db()
@@ -133,7 +268,7 @@ def get_settings(conn: sqlite3.Connection | None = None) -> dict[str, str]:
     return settings
 
 
-def save_settings(payload: dict[str, Any]) -> dict[str, str]:
+def save_settings(payload: dict[str, Any], user_id: str | None = None) -> dict[str, str]:
     settings = {
         "age": normalize_setting_text(payload.get("age")),
         "weight": normalize_setting_text(payload.get("weight")),
@@ -147,6 +282,12 @@ def save_settings(payload: dict[str, Any]) -> dict[str, str]:
     for key in ("age", "weight", "height"):
         if settings[key] and clamp_number(settings[key], maximum=400) <= 0:
             raise HTTPException(status_code=400, detail=f"{key} は正の数値で入力してください。")
+
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        fs().collection("users").document(user_id).collection("meta").document("settings").set(settings)
+        return settings
 
     with get_db() as conn:
         for key, value in settings.items():
@@ -260,7 +401,12 @@ def meals_for_day(conn: sqlite3.Connection, day: str) -> list[dict[str, Any]]:
     return [row_to_meal(row) for row in rows]
 
 
-def day_payload(day: str) -> dict[str, Any]:
+def day_payload(day: str, user_id: str | None = None) -> dict[str, Any]:
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        return firestore_day_payload(user_id, day)
+
     with get_db() as conn:
         purge_old_logs(conn)
         review_row = conn.execute(
@@ -277,7 +423,12 @@ def day_payload(day: str) -> dict[str, Any]:
         }
 
 
-def available_days(conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+def available_days(conn: sqlite3.Connection | None = None, user_id: str | None = None) -> list[dict[str, Any]]:
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        return firestore_available_days(user_id)
+
     owns_connection = conn is None
     if conn is None:
         conn = get_db()
@@ -307,7 +458,12 @@ def available_days(conn: sqlite3.Connection | None = None) -> list[dict[str, Any
     return [day_map[key] for key in sorted(day_map.keys(), reverse=True)]
 
 
-def streak_status() -> dict[str, Any]:
+def streak_status(user_id: str | None = None) -> dict[str, Any]:
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        return firestore_streak_status(user_id)
+
     with get_db() as conn:
         rows = conn.execute(
             """
@@ -340,7 +496,12 @@ def streak_status() -> dict[str, Any]:
     return {"streak": streak, "today_recorded": today_recorded, "message": message}
 
 
-def weekly_summary() -> dict[str, Any]:
+def weekly_summary(user_id: str | None = None) -> dict[str, Any]:
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        return firestore_weekly_summary(user_id)
+
     today = date.today()
     start_this_week = today - timedelta(days=today.weekday())
     start_last_week = start_this_week - timedelta(days=7)
@@ -371,7 +532,12 @@ def weekly_summary() -> dict[str, Any]:
     }
 
 
-def current_week_payload() -> dict[str, Any]:
+def current_week_payload(user_id: str | None = None) -> dict[str, Any]:
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        return firestore_current_week_payload(user_id)
+
     today = date.today()
     start = today - timedelta(days=6)
     days = []
@@ -400,6 +566,188 @@ def current_week_payload() -> dict[str, Any]:
         "start": start.isoformat(),
         "end": today.isoformat(),
         "totals": totals,
+        "days": days,
+        "message": message,
+    }
+
+
+def user_doc(user_id: str):
+    return fs().collection("users").document(user_id)
+
+
+def meals_collection(user_id: str):
+    return user_doc(user_id).collection("meals")
+
+
+def reviews_collection(user_id: str):
+    return user_doc(user_id).collection("daily_reviews")
+
+
+def firestore_meal_to_dict(doc) -> dict[str, Any]:
+    data = doc.to_dict() or {}
+    return {
+        "id": doc.id,
+        "date": data.get("eaten_date", ""),
+        "created_at": data.get("created_at", ""),
+        "dish_name": data.get("dish_name", "食事"),
+        "calories": round(float(data.get("calories", 0))),
+        "protein": round(float(data.get("protein", 0)), 1),
+        "fat": round(float(data.get("fat", 0)), 1),
+        "carbs": round(float(data.get("carbs", 0)), 1),
+        "fiber": round(float(data.get("fiber", 0)), 1),
+        "sugar": round(float(data.get("sugar", 0)), 1),
+        "salt": round(float(data.get("salt", 0)), 1),
+        "confidence": round(float(data.get("confidence", 0)), 2),
+        "notes": data.get("notes", ""),
+    }
+
+
+def firestore_purge_old_logs(user_id: str) -> None:
+    cutoff = oldest_kept_day()
+    for doc in meals_collection(user_id).where("eaten_date", "<", cutoff).stream():
+        doc.reference.delete()
+    for doc in reviews_collection(user_id).where("eaten_date", "<", cutoff).stream():
+        doc.reference.delete()
+
+
+def firestore_meals_for_day(user_id: str, day: str) -> list[dict[str, Any]]:
+    docs = meals_collection(user_id).where("eaten_date", "==", day).stream()
+    meals = [firestore_meal_to_dict(doc) for doc in docs]
+    return sorted(meals, key=lambda meal: meal.get("created_at", ""), reverse=True)
+
+
+def sum_meals(meals: list[dict[str, Any]]) -> dict[str, float]:
+    totals = empty_totals()
+    for meal in meals:
+        for key in totals:
+            totals[key] += float(meal.get(key, 0))
+    return {
+        "calories": round(totals["calories"]),
+        "protein": round(totals["protein"], 1),
+        "fat": round(totals["fat"], 1),
+        "carbs": round(totals["carbs"], 1),
+        "fiber": round(totals["fiber"], 1),
+        "sugar": round(totals["sugar"], 1),
+        "salt": round(totals["salt"], 1),
+    }
+
+
+def firestore_totals_for_day(user_id: str, day: str) -> dict[str, float]:
+    return sum_meals(firestore_meals_for_day(user_id, day))
+
+
+def firestore_meals_between(user_id: str, start_day: str, end_day: str) -> list[dict[str, Any]]:
+    docs = (
+        meals_collection(user_id)
+        .where("eaten_date", ">=", start_day)
+        .where("eaten_date", "<=", end_day)
+        .stream()
+    )
+    return [firestore_meal_to_dict(doc) for doc in docs]
+
+
+def firestore_day_payload(user_id: str, day: str) -> dict[str, Any]:
+    firestore_purge_old_logs(user_id)
+    review_snap = reviews_collection(user_id).document(day).get()
+    review_data = review_snap.to_dict() if review_snap.exists else None
+    meals = firestore_meals_for_day(user_id, day)
+    return {
+        "date": day,
+        "totals": sum_meals(meals),
+        "meals": meals,
+        "review": None
+        if not review_data
+        else {"text": review_data.get("review", ""), "created_at": review_data.get("created_at", "")},
+    }
+
+
+def firestore_available_days(user_id: str) -> list[dict[str, Any]]:
+    firestore_purge_old_logs(user_id)
+    docs = meals_collection(user_id).where("eaten_date", ">=", oldest_kept_day()).stream()
+    day_map: dict[str, dict[str, Any]] = {}
+    for doc in docs:
+        meal = firestore_meal_to_dict(doc)
+        day = meal["date"]
+        item = day_map.setdefault(day, {"date": day, "meal_count": 0, "calories": 0})
+        item["meal_count"] += 1
+        item["calories"] += meal["calories"]
+    today = date.today()
+    for offset in range(LOG_RETENTION_DAYS):
+        day = (today - timedelta(days=offset)).isoformat()
+        day_map.setdefault(day, {"date": day, "meal_count": 0, "calories": 0})
+    for item in day_map.values():
+        item["calories"] = round(float(item["calories"]))
+    return [day_map[key] for key in sorted(day_map.keys(), reverse=True)]
+
+
+def firestore_streak_status(user_id: str) -> dict[str, Any]:
+    docs = meals_collection(user_id).where("eaten_date", ">=", oldest_kept_day()).stream()
+    recorded = {(doc.to_dict() or {}).get("eaten_date") for doc in docs}
+    today = date.today()
+    streak = 0
+    cursor = today
+    while cursor.isoformat() in recorded:
+        streak += 1
+        cursor -= timedelta(days=1)
+
+    yesterday_recorded = (today - timedelta(days=1)).isoformat() in recorded
+    today_recorded = today.isoformat() in recorded
+    if streak >= 3:
+        message = f"{streak}日連続記録、えらすぎ。今日も続いてる。"
+    elif today_recorded:
+        message = "今日も撮ってくれてありがとう。小さく続いてます。"
+    elif yesterday_recorded:
+        message = "昨日は記録できてる。今日は1枚だけ撮れたら十分。"
+    else:
+        message = "昨日は休憩日。今日からまた軽く再スタート。"
+    return {"streak": streak, "today_recorded": today_recorded, "message": message}
+
+
+def firestore_weekly_summary(user_id: str) -> dict[str, Any]:
+    today = date.today()
+    start_this_week = today - timedelta(days=today.weekday())
+    start_last_week = start_this_week - timedelta(days=7)
+    end_last_week = start_this_week - timedelta(days=1)
+    meals = firestore_meals_between(user_id, start_last_week.isoformat(), end_last_week.isoformat())
+    days_recorded = len({meal["date"] for meal in meals})
+    if days_recorded >= 5:
+        text = "先週のあなたは、ちゃんと戻ってこられる人でした。"
+    elif meals:
+        text = "先週のあなたは、完璧じゃなくても記録を残せた人でした。"
+    else:
+        text = "先週は休憩週。今週は1枚だけで十分です。"
+    return {
+        "show": today.weekday() == 0,
+        "text": text,
+        "start": start_last_week.isoformat(),
+        "end": end_last_week.isoformat(),
+    }
+
+
+def firestore_current_week_payload(user_id: str) -> dict[str, Any]:
+    today = date.today()
+    start = today - timedelta(days=6)
+    all_meals = firestore_meals_between(user_id, start.isoformat(), today.isoformat())
+    by_day: dict[str, list[dict[str, Any]]] = {}
+    for meal in all_meals:
+        by_day.setdefault(meal["date"], []).append(meal)
+    days = []
+    for offset in range(7):
+        current = start + timedelta(days=offset)
+        key = current.isoformat()
+        meals = by_day.get(key, [])
+        days.append({"date": key, "totals": sum_meals(meals), "meal_count": len(meals)})
+    recorded_days = sum(1 for item in days if item["meal_count"] > 0)
+    if recorded_days >= 5:
+        message = "この1週間、かなり戻ってこられてる。続ける力が育ってます。"
+    elif recorded_days > 0:
+        message = "今週も記録を残せた日がある。それだけで次につながってます。"
+    else:
+        message = "今週はここからでOK。まず1回だけ記録してみよう。"
+    return {
+        "start": start.isoformat(),
+        "end": today.isoformat(),
+        "totals": sum_meals(all_meals),
         "days": days,
         "message": message,
     }
@@ -443,8 +791,16 @@ def build_review_text(day: str, totals: dict[str, float], meals: list[dict[str, 
 """
 
 
-def save_review(day: str, review: str) -> dict[str, str]:
+def save_review(day: str, review: str, user_id: str | None = None) -> dict[str, str]:
     created_at = datetime.now().isoformat(timespec="seconds")
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        reviews_collection(user_id).document(day).set(
+            {"eaten_date": day, "created_at": created_at, "review": review}
+        )
+        return {"text": review, "created_at": created_at}
+
     with get_db() as conn:
         conn.execute(
             """
@@ -715,42 +1071,156 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/api/auth/me")
+def auth_me(request: Request) -> dict[str, Any]:
+    return {
+        "auth_required": STORAGE_BACKEND == "firestore",
+        "user": public_user(current_user(request)),
+        "provider": "line",
+    }
+
+
+@app.get("/auth/line/login")
+def line_login() -> RedirectResponse:
+    if STORAGE_BACKEND != "firestore":
+        return RedirectResponse("/")
+
+    channel_id = os.getenv("LINE_CHANNEL_ID")
+    if not channel_id:
+        raise HTTPException(status_code=500, detail="LINE_CHANNEL_ID が未設定です。")
+
+    state = remember_line_state()
+    params = {
+        "response_type": "code",
+        "client_id": channel_id,
+        "redirect_uri": f"{APP_BASE_URL}/auth/line/callback",
+        "state": state,
+        "scope": "profile openid email",
+    }
+    return RedirectResponse(f"https://access.line.me/oauth2/v2.1/authorize?{urlencode(params)}")
+
+
+@app.get("/auth/line/callback")
+async def line_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> RedirectResponse:
+    if error:
+        raise HTTPException(status_code=400, detail=f"LINEログインがキャンセルされました: {error}")
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="LINEログインに必要な情報が不足しています。")
+    consume_line_state(state)
+
+    channel_id = os.getenv("LINE_CHANNEL_ID")
+    channel_secret = os.getenv("LINE_CHANNEL_SECRET")
+    if not channel_id or not channel_secret:
+        raise HTTPException(status_code=500, detail="LINE_CHANNEL_ID / LINE_CHANNEL_SECRET が未設定です。")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        token_res = await client.post(
+            "https://api.line.me/oauth2/v2.1/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": f"{APP_BASE_URL}/auth/line/callback",
+                "client_id": channel_id,
+                "client_secret": channel_secret,
+            },
+        )
+        if token_res.status_code >= 400:
+            raise HTTPException(status_code=502, detail="LINEトークン取得に失敗しました。")
+        token_data = token_res.json()
+        id_token = token_data.get("id_token")
+        if not id_token:
+            raise HTTPException(status_code=502, detail="LINE IDトークンを取得できませんでした。")
+
+        verify_res = await client.post(
+            "https://api.line.me/oauth2/v2.1/verify",
+            data={"id_token": id_token, "client_id": channel_id},
+        )
+        if verify_res.status_code >= 400:
+            raise HTTPException(status_code=502, detail="LINE IDトークン検証に失敗しました。")
+        profile = verify_res.json()
+
+    response = RedirectResponse("/")
+    create_line_session(response, profile)
+    return response
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request) -> RedirectResponse:
+    response = RedirectResponse("/")
+    clear_session(response, request)
+    return response
+
+
 @app.get("/api/today")
-def get_today() -> dict[str, Any]:
-    payload = day_payload(today_key())
-    payload["streak"] = streak_status()
-    payload["weekly_summary"] = weekly_summary()
+def get_today(request: Request) -> dict[str, Any]:
+    user_id = scoped_user_id(request)
+    payload = day_payload(today_key(), user_id)
+    payload["streak"] = streak_status(user_id)
+    payload["weekly_summary"] = weekly_summary(user_id)
     return payload
 
 
 @app.get("/api/days")
-def get_days() -> dict[str, Any]:
-    return {"days": available_days()}
+def get_days(request: Request) -> dict[str, Any]:
+    return {"days": available_days(user_id=scoped_user_id(request))}
 
 
 @app.get("/api/week")
-def get_week() -> dict[str, Any]:
-    return current_week_payload()
+def get_week(request: Request) -> dict[str, Any]:
+    return current_week_payload(scoped_user_id(request))
 
 
 @app.get("/api/days/{day}")
-def get_day(day: str) -> dict[str, Any]:
+def get_day(day: str, request: Request) -> dict[str, Any]:
     try:
         datetime.strptime(day, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(status_code=400, detail="日付はYYYY-MM-DDで指定してください。")
-    return day_payload(day)
+    return day_payload(day, scoped_user_id(request))
 
 
 @app.get("/api/settings")
-def read_settings() -> dict[str, Any]:
-    return {"settings": get_settings(), "purposes": PURPOSES}
+def read_settings(request: Request) -> dict[str, Any]:
+    return {"settings": get_settings(user_id=scoped_user_id(request)), "purposes": PURPOSES}
+
+
+@app.put("/api/settings")
+def update_settings(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    user_id = scoped_user_id(request)
+    return {"settings": save_settings(payload, user_id), "purposes": PURPOSES}
+
+
+@app.post("/api/days/{day}/review")
+def create_daily_review(day: str, request: Request) -> dict[str, Any]:
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日付はYYYY-MM-DDで指定してください。")
+
+    user_id = scoped_user_id(request)
+    payload = day_payload(day, user_id)
+    settings = get_settings(user_id=user_id)
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        text = demo_review(day, payload["totals"], settings)
+    else:
+        client = genai.Client(api_key=api_key)
+        try:
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=[build_review_text(day, payload["totals"], payload["meals"], settings)],
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Gemini API error: {exc}")
+        text = (response.text or "").strip() or demo_review(day, payload["totals"], settings)
+    return {"review": save_review(day, text, user_id)}
 
 
 @app.post("/api/analyze-text")
-def analyze_text(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+def analyze_text(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     estimate = estimate_text_meal(str(payload.get("text") or ""))
-    return save_meal_estimate(estimate)
+    user_id = scoped_user_id(request)
+    return save_meal_estimate(estimate, user_id)
 
 
 async def read_image(file: UploadFile) -> bytes:
@@ -765,9 +1235,36 @@ async def read_image(file: UploadFile) -> bytes:
     return image_bytes
 
 
-def save_meal_estimate(estimate: dict[str, Any]) -> dict[str, Any]:
+def save_meal_estimate(estimate: dict[str, Any], user_id: str | None = None) -> dict[str, Any]:
     created_at = datetime.now().isoformat(timespec="seconds")
     day = today_key()
+
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        doc_ref = meals_collection(user_id).document()
+        doc_ref.set(
+            {
+                "eaten_date": day,
+                "created_at": created_at,
+                "dish_name": estimate["dish_name"],
+                "calories": estimate["calories"],
+                "protein": estimate["protein"],
+                "fat": estimate["fat"],
+                "carbs": estimate["carbs"],
+                "fiber": estimate["fiber"],
+                "sugar": estimate["sugar"],
+                "salt": estimate["salt"],
+                "confidence": estimate["confidence"],
+                "notes": estimate["notes"],
+            }
+        )
+        meal = firestore_meal_to_dict(doc_ref.get())
+        return {
+            "meal": meal,
+            "totals": firestore_totals_for_day(user_id, day),
+            "days": firestore_available_days(user_id),
+        }
 
     with get_db() as conn:
         cursor = conn.execute(
@@ -803,14 +1300,47 @@ def save_meal_estimate(estimate: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+@app.post("/api/analyze")
+async def analyze_image(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+    image_bytes = await read_image(file)
+    estimate = await estimate_nutrition(file, image_bytes)
+    user_id = scoped_user_id(request)
+    return save_meal_estimate(estimate, user_id)
+
+
+@app.post("/api/analyze-label")
+async def analyze_label(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+    image_bytes = await read_image(file)
+    estimate = await estimate_nutrition_label(file, image_bytes)
+    user_id = scoped_user_id(request)
+    return save_meal_estimate(estimate, user_id)
+
+
 @app.delete("/api/meals/{meal_id}")
-def delete_meal(meal_id: int) -> dict[str, Any]:
+def delete_meal(meal_id: str, request: Request) -> dict[str, Any]:
+    user_id = scoped_user_id(request)
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        doc_ref = meals_collection(user_id).document(meal_id)
+        snap = doc_ref.get()
+        if not snap.exists:
+            raise HTTPException(status_code=404, detail="記録が見つかりません。")
+        day = (snap.to_dict() or {}).get("eaten_date", today_key())
+        doc_ref.delete()
+        return {
+            "date": day,
+            "totals": firestore_totals_for_day(user_id, day),
+            "meals": firestore_meals_for_day(user_id, day),
+            "days": firestore_available_days(user_id),
+        }
+
     with get_db() as conn:
-        row = conn.execute("SELECT eaten_date FROM meals WHERE id = ?", (meal_id,)).fetchone()
+        row = conn.execute("SELECT eaten_date FROM meals WHERE id = ?", (int(meal_id),)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="記録が見つかりません。")
         day = row["eaten_date"]
-        conn.execute("DELETE FROM meals WHERE id = ?", (meal_id,))
+        conn.execute("DELETE FROM meals WHERE id = ?", (int(meal_id),))
         return {
             "date": day,
             "totals": totals_for_day(conn, day),
