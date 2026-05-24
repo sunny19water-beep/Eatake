@@ -39,6 +39,9 @@ function App() {
   const [meals, setMeals] = useState([]);
   const [days, setDays] = useState([]);
   const [review, setReview] = useState(null);
+  const [streak, setStreak] = useState(null);
+  const [weeklySummary, setWeeklySummary] = useState(null);
+  const [weekData, setWeekData] = useState(null);
   const [settings, setSettings] = useState(defaultSettings);
   const [purposes, setPurposes] = useState(["ダイエット", "増量", "健康維持", "減量"]);
   const [cameraOn, setCameraOn] = useState(false);
@@ -48,6 +51,9 @@ function App() {
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [message, setMessage] = useState("写真を撮るだけで記録します");
   const [settingsMessage, setSettingsMessage] = useState("");
+  const [quickText, setQuickText] = useState("");
+  const [tapCount, setTapCount] = useState(0);
+  const [lastRecordTaps, setLastRecordTaps] = useState(null);
   const [preview, setPreview] = useState("");
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -66,18 +72,23 @@ function App() {
   }, []);
 
   async function refreshAll() {
-    const [todayRes, daysRes, settingsRes] = await Promise.all([
+    const [todayRes, daysRes, settingsRes, weekRes] = await Promise.all([
       fetch("/api/today"),
       fetch("/api/days"),
       fetch("/api/settings"),
+      fetch("/api/week"),
     ]);
     const todayData = await todayRes.json();
     const daysData = await daysRes.json();
     const settingsData = await settingsRes.json();
+    const weekJson = await weekRes.json();
     setSelectedDate(todayData.date);
     setTotals(todayData.totals || emptyTotals);
     setMeals(todayData.meals || []);
     setReview(todayData.review || null);
+    setStreak(todayData.streak || null);
+    setWeeklySummary(todayData.weekly_summary || null);
+    setWeekData(weekJson);
     setDays(daysData.days || []);
     setSettings(settingsData.settings || defaultSettings);
     setPurposes(settingsData.purposes || purposes);
@@ -100,6 +111,7 @@ function App() {
   }
 
   async function startCamera() {
+    setTapCount((count) => count + 1);
     setMessage("カメラを準備しています");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -125,6 +137,7 @@ function App() {
   }
 
   async function captureAndSend() {
+    setTapCount((count) => count + 1);
     const video = videoRef.current;
     if (!video || !video.videoWidth) return;
 
@@ -155,6 +168,8 @@ function App() {
       setMeals((current) => [data.meal, ...current.filter((meal) => meal.id !== data.meal.id)]);
       setDays(data.days || days);
       setReview(null);
+      setLastRecordTaps(tapCount + 1);
+      setTapCount(0);
       setMessage(captureMode === "label" ? "栄養成分表示の数値を採用しました" : "今日の合計に自動加算しました");
     } catch (error) {
       setMessage(error.message);
@@ -164,6 +179,7 @@ function App() {
   }
 
   async function handleFile(event) {
+    setTapCount((count) => count + 1);
     const file = event.target.files?.[0];
     if (!file) return;
     setPreview(URL.createObjectURL(file));
@@ -184,6 +200,7 @@ function App() {
   }
 
   async function createReview() {
+    setTapCount((count) => count + 1);
     setReviewBusy(true);
     try {
       const response = await fetch(`/api/days/${selectedDate}/review`, { method: "POST" });
@@ -218,8 +235,66 @@ function App() {
     }
   }
 
+  async function saveQuickText() {
+    const text = quickText.trim();
+    if (!text) return;
+    setBusy(true);
+    setTapCount((count) => count + 1);
+    try {
+      const response = await fetch("/api/analyze-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "てきとう記録に失敗しました");
+      setQuickText("");
+      setSelectedDate(data.meal.date);
+      setTotals(data.totals);
+      setMeals((current) => [data.meal, ...current.filter((meal) => meal.id !== data.meal.id)]);
+      setDays(data.days || days);
+      setReview(null);
+      setLastRecordTaps(1);
+      setTapCount(0);
+      setMessage("てきとう記録、ちゃんと残せました");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function setSetting(key, value) {
     setSettings((current) => ({ ...current, [key]: value }));
+  }
+
+  function renderEncouragement() {
+    return React.createElement(
+      "section",
+      { className: "encouragement" },
+      React.createElement("strong", null, streak ? streak.message : "今日も1枚だけでOK"),
+      weeklySummary?.show && React.createElement("span", null, weeklySummary.text),
+      lastRecordTaps && React.createElement("small", null, `記録完了まで ${lastRecordTaps} タップ`)
+    );
+  }
+
+  function renderQuickRecord() {
+    return React.createElement(
+      "section",
+      { className: "quickRecord" },
+      React.createElement("label", null, "てきとう記録"),
+      React.createElement("textarea", {
+        value: quickText,
+        rows: 2,
+        placeholder: "例: コンビニのおにぎり1個 / ラーメン食べた",
+        onChange: (event) => setQuickText(event.target.value),
+      }),
+      React.createElement(
+        "button",
+        { className: "primary wideButton", onClick: saveQuickText, disabled: busy || !quickText.trim() },
+        busy ? "記録中" : "これで記録"
+      )
+    );
   }
 
   function renderTotals() {
@@ -267,6 +342,7 @@ function App() {
     return React.createElement(
       React.Fragment,
       null,
+      renderEncouragement(),
       React.createElement(
         "section",
         { className: "modeSwitch" },
@@ -335,7 +411,8 @@ function App() {
           onChange: handleFile,
         })
       ),
-      renderTotals()
+      renderTotals(),
+      renderQuickRecord()
     );
   }
 
@@ -351,7 +428,55 @@ function App() {
       ),
       renderTotals(),
       renderReviewBox(),
+      renderEncouragement(),
       renderMealList("この日の記録はまだありません")
+    );
+  }
+
+  function renderWeek() {
+    const data = weekData || { totals: emptyTotals, days: [], message: "今週はここからでOK。" };
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(
+        "section",
+        { className: "sectionHead" },
+        React.createElement("h2", null, "1週間"),
+        React.createElement("p", null, data.start && data.end ? `${data.start} - ${data.end}` : "")
+      ),
+      React.createElement(
+        "section",
+        { className: "encouragement" },
+        React.createElement("strong", null, data.message)
+      ),
+      React.createElement(
+        "section",
+        { className: "totals" },
+        React.createElement(Stat, { label: "週間カロリー", value: data.totals.calories, unit: "kcal", tone: "wide" }),
+        React.createElement(Stat, { label: "タンパク質", value: data.totals.protein, unit: "g" }),
+        React.createElement(Stat, { label: "脂質", value: data.totals.fat, unit: "g" }),
+        React.createElement(Stat, { label: "糖質", value: data.totals.sugar, unit: "g" }),
+        React.createElement(Stat, { label: "食物繊維", value: data.totals.fiber, unit: "g" })
+      ),
+      React.createElement(
+        "section",
+        { className: "weekList" },
+        data.days.map((day) =>
+          React.createElement(
+            "button",
+            {
+              key: day.date,
+              className: day.meal_count > 0 ? "weekDay recorded" : "weekDay",
+              onClick: () => {
+                loadDay(day.date);
+                setView("daily");
+              },
+            },
+            React.createElement("strong", null, day.date.slice(5).replace("-", "/")),
+            React.createElement("span", null, day.meal_count > 0 ? `${day.meal_count}食 ${day.totals.calories}kcal` : "休憩日")
+          )
+        )
+      )
     );
   }
 
@@ -495,11 +620,13 @@ function App() {
       { className: "tabs" },
       React.createElement("button", { className: view === "camera" ? "active" : "", onClick: () => setView("camera") }, "撮影"),
       React.createElement("button", { className: view === "daily" ? "active" : "", onClick: () => setView("daily") }, "1日"),
+      React.createElement("button", { className: view === "week" ? "active" : "", onClick: () => setView("week") }, "1週間"),
       React.createElement("button", { className: view === "logs" ? "active" : "", onClick: () => setView("logs") }, "ログ"),
       React.createElement("button", { className: view === "settings" ? "active" : "", onClick: () => setView("settings") }, "設定")
     ),
     view === "camera" && renderCamera(),
     view === "daily" && renderDaily(),
+    view === "week" && renderWeek(),
     view === "logs" && renderLogs(),
     view === "settings" && renderSettings()
   );

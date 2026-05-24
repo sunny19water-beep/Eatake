@@ -84,7 +84,7 @@ h2 {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -246,80 +246,19 @@ h2 {
   border-color: var(--ink);
 }
 
-.sectionHead {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 18px 0 12px;
-}
-
-.sectionHead p {
-  color: var(--muted);
-  font-weight: 700;
-}
-
-.calendarPicker {
-  margin-bottom: 10px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-}
-
-.calendarPicker label {
+.encouragement,
+.quickRecord,
+.weekList {
   display: grid;
   gap: 8px;
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 800;
 }
 
-.calendarPicker input {
-  width: 100%;
-  min-height: 48px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: white;
-  color: var(--text);
-  font: inherit;
-}
-
-.reviewBox {
-  display: grid;
-  grid-template-columns: 1fr 96px;
-  gap: 12px;
+.weekDay {
+  display: flex;
   align-items: center;
-  margin-bottom: 16px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-}
-
-.reviewBox h2 {
-  margin-bottom: 6px;
-}
-
-.reviewBox p {
-  color: var(--muted);
-  line-height: 1.55;
-}
-
-.dateRail {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 2px 0 12px;
-  scrollbar-width: thin;
-}
-
-.dateChip {
-  flex: 0 0 auto;
-  min-width: 112px;
-  min-height: 64px;
-  padding: 10px 12px;
+  justify-content: space-between;
+  min-height: 54px;
+  padding: 0 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -327,67 +266,15 @@ h2 {
   text-align: left;
 }
 
-.dateChip strong,
-.dateChip span {
-  display: block;
-}
-
-.dateChip span {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.dateChip.active {
-  background: var(--ink);
-  color: white;
-  border-color: var(--ink);
-}
-
-.dateChip.active span {
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.history {
-  margin-top: 10px;
-}
-
-.empty {
-  padding: 22px 0;
-  color: var(--muted);
-}
-
-.meal {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 0;
-  border-top: 1px solid var(--line);
-}
-
-.meal strong,
-.meal span,
-.meal em {
-  display: block;
-}
-
-.meal span {
-  margin-top: 4px;
+.weekDay span {
   color: var(--muted);
   font-size: 14px;
+  font-weight: 700;
 }
 
-.meal em {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 12px;
-  font-style: normal;
-}
-
-.delete {
-  flex: 0 0 auto;
-  color: var(--red);
+.weekDay.recorded {
+  border-color: rgba(25, 107, 79, 0.35);
+  background: #f3fbf7;
 }
 
 .settingsPanel {

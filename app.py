@@ -15,7 +15,7 @@ from google.genai import types
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
 DB_PATH = DATA_DIR / "pfc_camera.sqlite3"
 LOG_RETENTION_DAYS = 90
 
@@ -220,6 +220,33 @@ def totals_for_day(conn: sqlite3.Connection, day: str) -> dict[str, float]:
     }
 
 
+def totals_between(conn: sqlite3.Connection, start_day: str, end_day: str) -> dict[str, float]:
+    row = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(calories), 0) AS calories,
+            COALESCE(SUM(protein), 0) AS protein,
+            COALESCE(SUM(fat), 0) AS fat,
+            COALESCE(SUM(carbs), 0) AS carbs,
+            COALESCE(SUM(fiber), 0) AS fiber,
+            COALESCE(SUM(sugar), 0) AS sugar,
+            COALESCE(SUM(salt), 0) AS salt
+        FROM meals
+        WHERE eaten_date BETWEEN ? AND ?
+        """,
+        (start_day, end_day),
+    ).fetchone()
+    return {
+        "calories": round(float(row["calories"])),
+        "protein": round(float(row["protein"]), 1),
+        "fat": round(float(row["fat"]), 1),
+        "carbs": round(float(row["carbs"]), 1),
+        "fiber": round(float(row["fiber"]), 1),
+        "sugar": round(float(row["sugar"]), 1),
+        "salt": round(float(row["salt"]), 1),
+    }
+
+
 def meals_for_day(conn: sqlite3.Connection, day: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
@@ -280,6 +307,104 @@ def available_days(conn: sqlite3.Connection | None = None) -> list[dict[str, Any
     return [day_map[key] for key in sorted(day_map.keys(), reverse=True)]
 
 
+def streak_status() -> dict[str, Any]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT eaten_date
+            FROM meals
+            WHERE eaten_date >= ?
+            GROUP BY eaten_date
+            ORDER BY eaten_date DESC
+            """,
+            (oldest_kept_day(),),
+        ).fetchall()
+    recorded = {row["eaten_date"] for row in rows}
+    today = date.today()
+    streak = 0
+    cursor = today
+    while cursor.isoformat() in recorded:
+        streak += 1
+        cursor -= timedelta(days=1)
+
+    yesterday_recorded = (today - timedelta(days=1)).isoformat() in recorded
+    today_recorded = today.isoformat() in recorded
+    if streak >= 3:
+        message = f"{streak}日連続記録、えらすぎ。今日も続いてる。"
+    elif today_recorded:
+        message = "今日も撮ってくれてありがとう。小さく続いてます。"
+    elif yesterday_recorded:
+        message = "昨日は記録できてる。今日は1枚だけ撮れたら十分。"
+    else:
+        message = "昨日は休憩日。今日からまた軽く再スタート。"
+    return {"streak": streak, "today_recorded": today_recorded, "message": message}
+
+
+def weekly_summary() -> dict[str, Any]:
+    today = date.today()
+    start_this_week = today - timedelta(days=today.weekday())
+    start_last_week = start_this_week - timedelta(days=7)
+    end_last_week = start_this_week - timedelta(days=1)
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT eaten_date, COUNT(*) AS meal_count
+            FROM meals
+            WHERE eaten_date BETWEEN ? AND ?
+            GROUP BY eaten_date
+            """,
+            (start_last_week.isoformat(), end_last_week.isoformat()),
+        ).fetchall()
+    days_recorded = len(rows)
+    meals_count = sum(int(row["meal_count"]) for row in rows)
+    if days_recorded >= 5:
+        text = "先週のあなたは、ちゃんと戻ってこられる人でした。"
+    elif meals_count > 0:
+        text = "先週のあなたは、完璧じゃなくても記録を残せた人でした。"
+    else:
+        text = "先週は休憩週。今週は1枚だけで十分です。"
+    return {
+        "show": today.weekday() == 0,
+        "text": text,
+        "start": start_last_week.isoformat(),
+        "end": end_last_week.isoformat(),
+    }
+
+
+def current_week_payload() -> dict[str, Any]:
+    today = date.today()
+    start = today - timedelta(days=6)
+    days = []
+    with get_db() as conn:
+        purge_old_logs(conn)
+        for offset in range(7):
+            current = start + timedelta(days=offset)
+            key = current.isoformat()
+            meals = meals_for_day(conn, key)
+            days.append(
+                {
+                    "date": key,
+                    "totals": totals_for_day(conn, key),
+                    "meal_count": len(meals),
+                }
+            )
+        totals = totals_between(conn, start.isoformat(), today.isoformat())
+    recorded_days = sum(1 for item in days if item["meal_count"] > 0)
+    if recorded_days >= 5:
+        message = "この1週間、かなり戻ってこられてる。続ける力が育ってます。"
+    elif recorded_days > 0:
+        message = "今週も記録を残せた日がある。それだけで次につながってます。"
+    else:
+        message = "今週はここからでOK。まず1回だけ記録してみよう。"
+    return {
+        "start": start.isoformat(),
+        "end": today.isoformat(),
+        "totals": totals,
+        "days": days,
+        "message": message,
+    }
+
+
 def profile_summary(settings: dict[str, str]) -> str:
     return (
         f"年齢: {settings.get('age') or '未設定'}、"
@@ -296,9 +421,10 @@ def build_review_text(day: str, totals: dict[str, float], meals: list[dict[str, 
         for meal in meals
     ) or "- 記録なし"
     return f"""
-あなたは栄養管理アプリの食事レビューAIです。
-ユーザーの設定と1日の食事ログを見て、目的に合わせた短いレビューを日本語で返してください。
-医学的な断定は避け、食事改善のヒントとして書いてください。
+あなたはライト層向けの、やさしく褒める食事記録アプリのAIです。
+数値のダメ出しではなく、記録した行動そのものを褒めてください。
+「多い」「少ない」「不足」「注意」など責める言い方は避けてください。
+ユーザーの設定と1日の食事ログを見て、目的に合わせた短い応援コメントを日本語で返してください。
 
 日付: {day}
 ユーザー設定: {profile_summary(settings)}
@@ -313,7 +439,7 @@ def build_review_text(day: str, totals: dict[str, float], meals: list[dict[str, 
 食事ログ:
 {meal_lines}
 
-返答は180文字以内。良かった点、気をつける点、次の一手を含めてください。
+返答は120文字以内。褒める一言を中心にして、最後に軽い次の一手を添えてください。
 """
 
 
@@ -336,10 +462,9 @@ def save_review(day: str, review: str) -> dict[str, str]:
 def demo_review(day: str, totals: dict[str, float], settings: dict[str, str]) -> str:
     purpose = settings.get("purpose") or "健康維持"
     if totals["calories"] == 0:
-        return f"{day}はまだ食事記録がありません。{purpose}の判断には、まず1食だけでも撮影して記録を増やしましょう。"
+        return f"今日はまだ白紙。ここから1枚撮れたらそれだけで前進です。{purpose}も軽く続けていこう。"
     return (
-        f"{purpose}向けに見ると、今日はP{totals['protein']}g、糖質{totals['sugar']}g、"
-        f"食物繊維{totals['fiber']}g、塩分{totals['salt']}gです。次の食事は野菜と水分を足すと整えやすいです。"
+        f"今日も記録できてるのがまず強い。{purpose}に向けて、撮った分だけ自分を見られてます。次も1枚だけでOK。"
     )
 
 
@@ -511,6 +636,80 @@ caloriesはkcal、protein/fat/carbs/fiber/sugar/saltはgです。
     }
 
 
+def normalize_estimate(result: dict[str, Any], fallback_name: str) -> dict[str, Any]:
+    carbs = clamp_number(result.get("carbs"), maximum=1000)
+    fiber = clamp_number(result.get("fiber"), maximum=300)
+    sugar = clamp_number(result.get("sugar"), maximum=1000)
+    if sugar == 0 and carbs > 0:
+        sugar = max(0, carbs - fiber)
+    return {
+        "dish_name": str(result.get("dish_name") or fallback_name),
+        "calories": round(clamp_number(result.get("calories"))),
+        "protein": round(clamp_number(result.get("protein"), maximum=500), 1),
+        "fat": round(clamp_number(result.get("fat"), maximum=500), 1),
+        "carbs": round(carbs, 1),
+        "fiber": round(fiber, 1),
+        "sugar": round(sugar, 1),
+        "salt": round(clamp_number(result.get("salt"), maximum=100), 1),
+        "confidence": round(clamp_number(result.get("confidence"), maximum=1), 2),
+        "notes": str(result.get("notes") or ""),
+    }
+
+
+def estimate_text_meal(text: str) -> dict[str, Any]:
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="食べたものを入力してください。")
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return {
+            "dish_name": text[:40],
+            "calories": 300,
+            "protein": 8,
+            "fat": 6,
+            "carbs": 50,
+            "fiber": 2,
+            "sugar": 48,
+            "salt": 1.2,
+            "confidence": 0.3,
+            "notes": "GEMINI_API_KEY 未設定のためデモ値です。",
+        }
+
+    prompt = f"""
+食事記録アプリの「てきとう記録」です。
+ユーザーが写真なしで入力した食事を、1食分としてざっくり栄養推定してください。
+完璧さより、記録を続けるための妥当な中央値を返してください。
+入力: {text}
+JSONだけで返してください。
+{{
+  "dish_name": "食事名",
+  "calories": 0,
+  "protein": 0,
+  "fat": 0,
+  "carbs": 0,
+  "fiber": 0,
+  "sugar": 0,
+  "salt": 0,
+  "confidence": 0.0,
+  "notes": "ざっくり推定"
+}}
+"""
+    client = genai.Client(api_key=api_key)
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[prompt],
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Gemini API error: {exc}")
+    try:
+        result = parse_json_response(response.text or "")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Gemini response parse error: {exc}")
+    return normalize_estimate(result, text[:40])
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
@@ -518,12 +717,20 @@ def index() -> FileResponse:
 
 @app.get("/api/today")
 def get_today() -> dict[str, Any]:
-    return day_payload(today_key())
+    payload = day_payload(today_key())
+    payload["streak"] = streak_status()
+    payload["weekly_summary"] = weekly_summary()
+    return payload
 
 
 @app.get("/api/days")
 def get_days() -> dict[str, Any]:
     return {"days": available_days()}
+
+
+@app.get("/api/week")
+def get_week() -> dict[str, Any]:
+    return current_week_payload()
 
 
 @app.get("/api/days/{day}")
@@ -540,54 +747,9 @@ def read_settings() -> dict[str, Any]:
     return {"settings": get_settings(), "purposes": PURPOSES}
 
 
-@app.put("/api/settings")
-def update_settings(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    return {"settings": save_settings(payload), "purposes": PURPOSES}
-
-
-@app.post("/api/days/{day}/review")
-def review_day(day: str) -> dict[str, Any]:
-    try:
-        datetime.strptime(day, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="日付はYYYY-MM-DDで指定してください。")
-
-    with get_db() as conn:
-        totals = totals_for_day(conn, day)
-        meals = meals_for_day(conn, day)
-        settings = get_settings(conn)
-
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        review = demo_review(day, totals, settings)
-        return {"date": day, "review": save_review(day, review)}
-
-    client = genai.Client(api_key=api_key)
-    try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=[build_review_text(day, totals, meals, settings)],
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Gemini API error: {exc}")
-
-    review = (response.text or "").strip()
-    if not review:
-        raise HTTPException(status_code=502, detail="Gemini review was empty.")
-    return {"date": day, "review": save_review(day, review[:500])}
-
-
-@app.post("/api/analyze")
-async def analyze(file: UploadFile = File(...)) -> dict[str, Any]:
-    image_bytes = await read_image(file)
-    estimate = await estimate_nutrition(file, image_bytes)
-    return save_meal_estimate(estimate)
-
-
-@app.post("/api/analyze-label")
-async def analyze_label(file: UploadFile = File(...)) -> dict[str, Any]:
-    image_bytes = await read_image(file)
-    estimate = await estimate_nutrition_label(file, image_bytes)
+@app.post("/api/analyze-text")
+def analyze_text(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    estimate = estimate_text_meal(str(payload.get("text") or ""))
     return save_meal_estimate(estimate)
 
 
