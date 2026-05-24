@@ -1,7 +1,14 @@
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*service-account*.json
+google-credentials.json
 .venv/
 __pycache__/
 *.pyc
 data/meals.json
 data/*.sqlite3
 server.*.log
+改善点.txt
