@@ -16,6 +16,16 @@ const defaultSettings = {
 const emptyProfile = { ready: false, bmi: 0, category: "未設定", target_daily_deficit: 0, kg_to_lose: 0, bmr: 0, tdee: 0, message: "" };
 const emptyTargetPfc = { ready: false, calories: 0, protein: 0, fat: 0, carbs: 0, ratio: "" };
 const emptyEnergy = { ready: false, bmr: 0, tdee: 0, calories: 0, balance: 0, deficit: 0, surplus: 0, target_daily_deficit: 0, target_pfc: emptyTargetPfc, profile: emptyProfile, message: "" };
+const MIN_LOADING_MS = 1000;
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function keepLoadingVisible(startedAt) {
+  const remaining = MIN_LOADING_MS - (Date.now() - startedAt);
+  if (remaining > 0) await wait(remaining);
+}
 
 function Stat({ label, value, unit, tone }) {
   return React.createElement(
@@ -117,8 +127,8 @@ function App() {
   useEffect(() => {
     if (!successText) return;
     setSuccessBurst(true);
-    const burstTimer = setTimeout(() => setSuccessBurst(false), 1100);
-    const timer = setTimeout(() => setSuccessText(""), 2600);
+    const burstTimer = setTimeout(() => setSuccessBurst(false), 1400);
+    const timer = setTimeout(() => setSuccessText(""), 3000);
     return () => {
       clearTimeout(burstTimer);
       clearTimeout(timer);
@@ -133,6 +143,7 @@ function App() {
   }, [refreshing, busy, reviewBusy, settingsBusy, diaryBusy]);
 
   async function refreshAll() {
+    const loadingStartedAt = Date.now();
     setRefreshing(true);
     try {
       const authRes = await fetch("/api/auth/me");
@@ -177,6 +188,7 @@ function App() {
       setPurposes(settingsData.purposes || purposes);
       setReviewTones(settingsData.review_tones || reviewTones);
     } finally {
+      await keepLoadingVisible(loadingStartedAt);
       setRefreshing(false);
     }
   }
@@ -213,6 +225,7 @@ function App() {
 
   async function loadDay(day) {
     if (!day) return;
+    const loadingStartedAt = Date.now();
     setRefreshing(true);
     try {
       const response = await fetch(`/api/days/${day}`);
@@ -226,6 +239,7 @@ function App() {
       setDiaryDraft(data.diary?.text || "");
       setDiaryMessage("");
     } finally {
+      await keepLoadingVisible(loadingStartedAt);
       setRefreshing(false);
     }
   }
@@ -279,6 +293,7 @@ function App() {
   }
 
   async function sendImage(blob, filename) {
+    const loadingStartedAt = Date.now();
     setBusy(true);
     setMessage(captureMode === "label" ? "栄養成分表示を読み取っています" : "Geminiで推定しています");
     const formData = new FormData();
@@ -302,12 +317,14 @@ function App() {
       setCaptureMode("text");
       setQuickText((current) => current || "");
     } finally {
+      await keepLoadingVisible(loadingStartedAt);
       setBusy(false);
     }
   }
 
   async function confirmPendingEstimate() {
     if (!pendingEstimate) return;
+    const loadingStartedAt = Date.now();
     setBusy(true);
     try {
       const response = await fetch("/api/meals", {
@@ -333,6 +350,7 @@ function App() {
     } catch (error) {
       setMessage(error.message);
     } finally {
+      await keepLoadingVisible(loadingStartedAt);
       setBusy(false);
     }
   }
@@ -361,6 +379,7 @@ function App() {
 
   async function createReview() {
     setTapCount((count) => count + 1);
+    const loadingStartedAt = Date.now();
     setReviewBusy(true);
     try {
       const response = await fetch(`/api/days/${selectedDate}/review`, { method: "POST" });
@@ -371,11 +390,13 @@ function App() {
     } catch (error) {
       setReview({ text: error.message, created_at: "" });
     } finally {
+      await keepLoadingVisible(loadingStartedAt);
       setReviewBusy(false);
     }
   }
 
   async function saveDiary() {
+    const loadingStartedAt = Date.now();
     setDiaryBusy(true);
     setDiaryMessage("");
     try {
@@ -391,11 +412,13 @@ function App() {
     } catch (error) {
       setDiaryMessage(error.message);
     } finally {
+      await keepLoadingVisible(loadingStartedAt);
       setDiaryBusy(false);
     }
   }
 
   async function saveSettings() {
+    const loadingStartedAt = Date.now();
     setSettingsBusy(true);
     setSettingsMessage("");
     try {
@@ -414,6 +437,7 @@ function App() {
     } catch (error) {
       setSettingsMessage(error.message);
     } finally {
+      await keepLoadingVisible(loadingStartedAt);
       setSettingsBusy(false);
     }
   }
@@ -421,6 +445,7 @@ function App() {
   async function saveQuickText() {
     const text = quickText.trim();
     if (!text) return;
+    const loadingStartedAt = Date.now();
     setBusy(true);
     setTapCount((count) => count + 1);
     try {
@@ -446,6 +471,7 @@ function App() {
     } catch (error) {
       setMessage(error.message);
     } finally {
+      await keepLoadingVisible(loadingStartedAt);
       setBusy(false);
     }
   }
@@ -467,6 +493,7 @@ function App() {
 
   async function saveMealEdit() {
     if (!editingMeal) return;
+    const loadingStartedAt = Date.now();
     setBusy(true);
     try {
       const response = await fetch(`/api/meals/${editingMeal.id}`, {
@@ -486,12 +513,14 @@ function App() {
     } catch (error) {
       setMessage(error.message);
     } finally {
+      await keepLoadingVisible(loadingStartedAt);
       setBusy(false);
     }
   }
 
   async function deleteAllData() {
     if (!window.confirm("すべての食事記録とレビューを削除します。元に戻せません。")) return;
+    const loadingStartedAt = Date.now();
     setBusy(true);
     try {
       const response = await fetch("/api/meals", { method: "DELETE" });
@@ -507,6 +536,7 @@ function App() {
     } catch (error) {
       setSettingsMessage(error.message);
     } finally {
+      await keepLoadingVisible(loadingStartedAt);
       setBusy(false);
     }
   }
@@ -514,6 +544,7 @@ function App() {
   async function sendFeedback() {
     const message = feedbackText.trim();
     if (!message) return;
+    const loadingStartedAt = Date.now();
     setSettingsBusy(true);
     setFeedbackMessage("");
     try {
@@ -529,6 +560,7 @@ function App() {
     } catch (error) {
       setFeedbackMessage(error.message);
     } finally {
+      await keepLoadingVisible(loadingStartedAt);
       setSettingsBusy(false);
     }
   }
@@ -1120,11 +1152,11 @@ function App() {
       null,
       React.createElement(
         "section",
-        { className: "sectionHead" },
+        { className: "sectionHead dailyHead" },
         React.createElement("h2", null, "1日の記録"),
-        React.createElement("p", null, selectedDate)
+        React.createElement("p", null, selectedDate),
+        renderDiary()
       ),
-      renderDiary(),
       renderTotals(),
       renderEnergyBalance(),
       renderTargetPfc(),
@@ -1480,7 +1512,13 @@ function App() {
       React.createElement(
         "div",
         { className: "successBurst", "aria-hidden": "true" },
-        Array.from({ length: 12 }).map((_, index) => React.createElement("span", { key: index }))
+        React.createElement(
+          "div",
+          { className: "dopamineBadge" },
+          React.createElement("strong", null, "+1"),
+          React.createElement("small", null, "記録できた")
+        ),
+        Array.from({ length: 24 }).map((_, index) => React.createElement("span", { key: index }))
       ),
     successText &&
       React.createElement(

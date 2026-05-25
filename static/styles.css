@@ -88,6 +88,12 @@ h2 {
   font-size: 20px;
 }
 
+.dailyHead {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
 .ghost,
 .delete,
 .primary {
@@ -627,11 +633,11 @@ h2 {
   padding: 14px 16px;
   border: 1px solid rgba(25, 107, 79, 0.28);
   border-radius: 8px;
-  background: var(--green);
+  background: linear-gradient(135deg, #196b4f, #25a46f);
   color: white;
-  box-shadow: 0 16px 44px rgba(16, 16, 14, 0.18);
+  box-shadow: 0 16px 44px rgba(16, 16, 14, 0.18), 0 0 0 8px rgba(37, 164, 111, 0.12);
   transform: translateX(-50%);
-  animation: toastIn 260ms ease both, toastPulse 900ms ease 260ms 1;
+  animation: toastIn 260ms ease both, toastPulse 900ms ease 260ms 2;
 }
 
 .successToast span {
@@ -663,18 +669,22 @@ h2 {
   z-index: 55;
   pointer-events: none;
   overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 52%, rgba(37, 164, 111, 0.18), transparent 34%),
+    radial-gradient(circle at 50% 52%, rgba(242, 201, 76, 0.16), transparent 42%);
+  animation: burstBackdrop 1180ms ease-out forwards;
 }
 
 .successBurst span {
   position: absolute;
   left: 50%;
   top: 54%;
-  width: 9px;
-  height: 18px;
+  width: 10px;
+  height: 20px;
   border-radius: 3px;
   background: var(--green);
   opacity: 0;
-  animation: burst 860ms ease-out forwards;
+  animation: burst 1180ms cubic-bezier(0.16, 0.84, 0.38, 1) forwards;
 }
 
 .successBurst span:nth-child(3n) {
@@ -685,18 +695,95 @@ h2 {
   background: #ff7a59;
 }
 
-.successBurst span:nth-child(1) { --x: -118px; --y: -126px; transform: rotate(8deg); }
-.successBurst span:nth-child(2) { --x: -72px; --y: -154px; transform: rotate(46deg); }
-.successBurst span:nth-child(3) { --x: -18px; --y: -136px; transform: rotate(92deg); }
-.successBurst span:nth-child(4) { --x: 42px; --y: -152px; transform: rotate(118deg); }
-.successBurst span:nth-child(5) { --x: 102px; --y: -112px; transform: rotate(162deg); }
-.successBurst span:nth-child(6) { --x: 132px; --y: -40px; transform: rotate(204deg); }
-.successBurst span:nth-child(7) { --x: 94px; --y: 48px; transform: rotate(230deg); }
-.successBurst span:nth-child(8) { --x: 38px; --y: 82px; transform: rotate(270deg); }
-.successBurst span:nth-child(9) { --x: -28px; --y: 76px; transform: rotate(310deg); }
-.successBurst span:nth-child(10) { --x: -86px; --y: 36px; transform: rotate(338deg); }
-.successBurst span:nth-child(11) { --x: -124px; --y: -22px; transform: rotate(28deg); }
-.successBurst span:nth-child(12) { --x: 18px; --y: -202px; transform: rotate(72deg); }
+.successBurst span:nth-child(4n) {
+  background: #6fcf97;
+}
+
+.dopamineBadge {
+  position: absolute;
+  left: 50%;
+  top: 51%;
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--green);
+  box-shadow: 0 20px 70px rgba(16, 16, 14, 0.2), 0 0 0 12px rgba(37, 164, 111, 0.14);
+  translate: -50% -50%;
+  animation: badgePop 1120ms cubic-bezier(0.17, 0.89, 0.32, 1.28) forwards;
+}
+
+.dopamineBadge strong {
+  font-size: 42px;
+  line-height: 0.9;
+}
+
+.dopamineBadge small {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.successBurst span:nth-child(2) { --x: -118px; --y: -126px; transform: rotate(8deg); }
+.successBurst span:nth-child(3) { --x: -72px; --y: -154px; transform: rotate(46deg); }
+.successBurst span:nth-child(4) { --x: -18px; --y: -136px; transform: rotate(92deg); }
+.successBurst span:nth-child(5) { --x: 42px; --y: -152px; transform: rotate(118deg); }
+.successBurst span:nth-child(6) { --x: 102px; --y: -112px; transform: rotate(162deg); }
+.successBurst span:nth-child(7) { --x: 132px; --y: -40px; transform: rotate(204deg); }
+.successBurst span:nth-child(8) { --x: 94px; --y: 48px; transform: rotate(230deg); }
+.successBurst span:nth-child(9) { --x: 38px; --y: 82px; transform: rotate(270deg); }
+.successBurst span:nth-child(10) { --x: -28px; --y: 76px; transform: rotate(310deg); }
+.successBurst span:nth-child(11) { --x: -86px; --y: 36px; transform: rotate(338deg); }
+.successBurst span:nth-child(12) { --x: -124px; --y: -22px; transform: rotate(28deg); }
+.successBurst span:nth-child(13) { --x: 18px; --y: -202px; transform: rotate(72deg); }
+.successBurst span:nth-child(14) { --x: 164px; --y: -128px; transform: rotate(18deg); }
+.successBurst span:nth-child(15) { --x: 190px; --y: 18px; transform: rotate(58deg); }
+.successBurst span:nth-child(16) { --x: 146px; --y: 112px; transform: rotate(98deg); }
+.successBurst span:nth-child(17) { --x: 72px; --y: 156px; transform: rotate(136deg); }
+.successBurst span:nth-child(18) { --x: -72px; --y: 142px; transform: rotate(184deg); }
+.successBurst span:nth-child(19) { --x: -158px; --y: 98px; transform: rotate(226deg); }
+.successBurst span:nth-child(20) { --x: -184px; --y: -82px; transform: rotate(266deg); }
+.successBurst span:nth-child(21) { --x: -32px; --y: -214px; transform: rotate(302deg); }
+.successBurst span:nth-child(22) { --x: 80px; --y: -212px; transform: rotate(332deg); }
+.successBurst span:nth-child(23) { --x: 204px; --y: -42px; transform: rotate(24deg); }
+.successBurst span:nth-child(24) { --x: -204px; --y: 18px; transform: rotate(74deg); }
+.successBurst span:nth-child(25) { --x: 10px; --y: 194px; transform: rotate(124deg); }
+
+@keyframes burstBackdrop {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes badgePop {
+  0% {
+    opacity: 0;
+    scale: 0.45;
+  }
+  18% {
+    opacity: 1;
+    scale: 1.14;
+  }
+  48% {
+    scale: 0.98;
+  }
+  78% {
+    opacity: 1;
+    scale: 1;
+  }
+  100% {
+    opacity: 0;
+    scale: 0.88;
+  }
+}
 
 @keyframes burst {
   0% {
