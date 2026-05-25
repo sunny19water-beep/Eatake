@@ -766,6 +766,35 @@ function App() {
   function renderTips() {
     const target = energy.target_pfc || emptyTargetPfc;
     const tips = [];
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = yesterday.toISOString().slice(0, 10);
+    const yesterdayLog = days.find((day) => day.date === yesterdayKey);
+    const todayMealCount = meals.length;
+    const weekAverage = weekData?.averages;
+
+    if (yesterdayLog?.meal_count > 0) {
+      tips.push(`昨日は${yesterdayLog.meal_count}食、約${yesterdayLog.calories}kcalを記録できていました。昨日できた流れを、今日は1枚だけでもつなげれば十分です。`);
+    } else if (days.length > 0) {
+      tips.push("昨日は休憩日でも大丈夫。今日また1食だけ残せば、ちゃんと再スタートになります。");
+    }
+
+    if (todayMealCount > 0) {
+      tips.push(`今日はすでに${todayMealCount}件記録できています。精度より、残せていることが一番の勝ちです。`);
+    } else {
+      tips.push("今日はまだ記録なし。写真が無理なら、文面記録で「おにぎり1個」だけでもOKです。");
+    }
+
+    if (aiUsage.remaining <= 2) {
+      tips.push(`AI解析は今日はあと${aiUsage.remaining}回です。迷ったら写真より文面記録を使うと、回数を温存できます。`);
+    } else {
+      tips.push(`AI解析は今日はあと${aiUsage.remaining}回使えます。よく分からない食事ほど写真で残すと後から見返しやすいです。`);
+    }
+
+    if (weekAverage?.calories > 0) {
+      tips.push(`今週の平均は約${weekAverage.calories}kcal/日です。1日だけで判断せず、週平均でゆるく見るのが続けやすいです。`);
+    }
+
     if (!energy.ready) {
       tips.push("設定を入れると、TDEEと目標PFCがあなた用になります。まずは年齢・身長・体重だけでもOK。");
     } else if (energy.deficit > 0) {
@@ -788,7 +817,7 @@ function App() {
       "section",
       { className: "tipsBox" },
       React.createElement("h2", null, "Tips"),
-      tips.slice(0, 3).map((tip, index) =>
+      tips.slice(0, 5).map((tip, index) =>
         React.createElement(
           "article",
           { key: tip },
