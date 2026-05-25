@@ -3,6 +3,8 @@ import os
 import secrets
 import sqlite3
 import base64
+import hashlib
+import hmac
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
@@ -30,6 +32,8 @@ LOG_RETENTION_DAYS = 90
 load_dotenv(BASE_DIR / ".env")
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "sqlite").lower()
+AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "false").lower() == "true"
+PROTOTYPE_USER_ID = os.getenv("PROTOTYPE_USER_ID", "prototype")
 APP_BASE_URL = (
     os.getenv("APP_BASE_URL")
     or os.getenv("RENDER_EXTERNAL_URL")
@@ -38,9 +42,23 @@ APP_BASE_URL = (
 SESSION_COOKIE = "eatake_session"
 SESSION_DAYS = 30
 AI_DAILY_LIMIT = int(os.getenv("AI_DAILY_LIMIT", "10"))
+SESSION_SECRET = os.getenv("SESSION_SECRET") or os.getenv("LINE_CHANNEL_SECRET") or APP_BASE_URL
+LINE_REQUEST_EMAIL = os.getenv("LINE_REQUEST_EMAIL", "false").lower() == "true"
 
 app = FastAPI(title="PFC Camera Logger")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Permissions-Policy", "camera=(self), microphone=()")
+    if request.url.path.startswith("/api/") or request.url.path.startswith("/auth/"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
 
 PURPOSES = ["ダイエット", "増量", "健康維持", "減量"]
 PURPOSE_SET = set(PURPOSES)
@@ -86,10 +104,23 @@ def public_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
     if not user:
         return None
     return {
-        "id": user.get("id"),
+        "id": "line",
         "name": user.get("name", ""),
         "picture": user.get("picture", ""),
         "provider": user.get("provider", ""),
+    }
+
+
+def session_doc_id(token: str) -> str:
+    return hmac.new(SESSION_SECRET.encode("utf-8"), token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def cookie_options() -> dict[str, Any]:
+    return {
+        "httponly": True,
+        "secure": APP_BASE_URL.startswith("https://"),
+        "samesite": "lax",
+        "path": "/",
     }
 
 
@@ -105,7 +136,7 @@ def current_user(request: Request) -> dict[str, Any] | None:
     if not token:
         return None
     if STORAGE_BACKEND == "firestore":
-        snap = fs().collection("sessions").document(token).get()
+        snap = fs().collection("sessions").document(session_doc_id(token)).get()
         if not snap.exists:
             return None
         session = snap.to_dict() or {}
@@ -128,60 +159,72 @@ def create_line_session(response: Response, profile: dict[str, Any]) -> None:
         "provider": "line",
         "name": profile.get("name") or profile.get("displayName") or "",
         "picture": profile.get("picture") or profile.get("pictureUrl") or "",
-        "email": profile.get("email", ""),
         "updated_at": now_key(),
     }
+    if profile.get("email"):
+        user["email"] = profile.get("email", "")
     if STORAGE_BACKEND == "firestore":
         fs().collection("users").document(user_id).set(user, merge=True)
         token = secrets.token_urlsafe(32)
-        fs().collection("sessions").document(token).set(
+        fs().collection("sessions").document(session_doc_id(token)).set(
             {
                 "user_id": user_id,
                 "created_at": now_key(),
                 "expires_at": (datetime.now() + timedelta(days=30)).isoformat(timespec="seconds"),
+                "rotated_at": now_key(),
             }
         )
         response.set_cookie(
             SESSION_COOKIE,
             token,
             max_age=60 * 60 * 24 * SESSION_DAYS,
-            httponly=True,
-            secure=APP_BASE_URL.startswith("https://"),
-            samesite="lax",
+            **cookie_options(),
         )
 
 
 def clear_session(response: Response, request: Request) -> None:
     token = request.cookies.get(SESSION_COOKIE)
     if token and STORAGE_BACKEND == "firestore":
-        fs().collection("sessions").document(token).delete()
-    response.delete_cookie(SESSION_COOKIE)
+        fs().collection("sessions").document(session_doc_id(token)).delete()
+    response.delete_cookie(SESSION_COOKIE, path="/", samesite="lax", secure=APP_BASE_URL.startswith("https://"))
 
 
-def remember_line_state() -> str:
+def remember_line_state() -> tuple[str, str]:
     state = secrets.token_urlsafe(24)
+    nonce = secrets.token_urlsafe(24)
     if STORAGE_BACKEND == "firestore":
-        fs().collection("auth_states").document(state).set({"provider": "line", "created_at": now_key()})
-    return state
+        fs().collection("auth_states").document(state).set(
+            {
+                "provider": "line",
+                "nonce": nonce,
+                "created_at": now_key(),
+                "expires_at": (datetime.now() + timedelta(minutes=10)).isoformat(timespec="seconds"),
+            }
+        )
+    return state, nonce
 
 
-def consume_line_state(state: str) -> None:
+def consume_line_state(state: str) -> str:
     if STORAGE_BACKEND != "firestore":
-        return
+        return ""
     ref = fs().collection("auth_states").document(state)
     snap = ref.get()
     if not snap.exists:
         raise HTTPException(status_code=400, detail="LINEログイン状態の確認に失敗しました。")
-    created = (snap.to_dict() or {}).get("created_at", "")
-    if created < (datetime.now() - timedelta(minutes=10)).isoformat(timespec="seconds"):
+    state_data = snap.to_dict() or {}
+    expires_at = state_data.get("expires_at") or state_data.get("created_at", "")
+    if expires_at <= now_key():
         ref.delete()
         raise HTTPException(status_code=400, detail="LINEログインの有効期限が切れました。")
     ref.delete()
+    return str(state_data.get("nonce") or "")
 
 
 def scoped_user_id(request: Request) -> str | None:
     if STORAGE_BACKEND != "firestore":
         return None
+    if not AUTH_REQUIRED:
+        return PROTOTYPE_USER_ID
     return require_user(request)["id"]
 
 
@@ -1498,9 +1541,9 @@ def health() -> dict[str, str]:
 @app.get("/api/auth/me")
 def auth_me(request: Request) -> dict[str, Any]:
     user = current_user(request)
-    user_id = user["id"] if user and STORAGE_BACKEND == "firestore" else None
+    user_id = user["id"] if user and STORAGE_BACKEND == "firestore" else (PROTOTYPE_USER_ID if STORAGE_BACKEND == "firestore" and not AUTH_REQUIRED else None)
     return {
-        "auth_required": STORAGE_BACKEND == "firestore",
+        "auth_required": STORAGE_BACKEND == "firestore" and AUTH_REQUIRED,
         "user": public_user(user),
         "provider": "line",
         "ai_usage": usage_status(user_id),
@@ -1509,20 +1552,24 @@ def auth_me(request: Request) -> dict[str, Any]:
 
 @app.get("/auth/line/login")
 def line_login() -> RedirectResponse:
-    if STORAGE_BACKEND != "firestore":
+    if STORAGE_BACKEND != "firestore" or not AUTH_REQUIRED:
         return RedirectResponse("/")
 
     channel_id = os.getenv("LINE_CHANNEL_ID")
     if not channel_id:
         raise HTTPException(status_code=500, detail="LINE_CHANNEL_ID が未設定です。")
 
-    state = remember_line_state()
+    state, nonce = remember_line_state()
+    scopes = ["profile", "openid"]
+    if LINE_REQUEST_EMAIL:
+        scopes.append("email")
     params = {
         "response_type": "code",
         "client_id": channel_id,
         "redirect_uri": f"{APP_BASE_URL}/auth/line/callback",
         "state": state,
-        "scope": "profile openid email",
+        "scope": " ".join(scopes),
+        "nonce": nonce,
     }
     return RedirectResponse(f"https://access.line.me/oauth2/v2.1/authorize?{urlencode(params)}")
 
@@ -1533,7 +1580,7 @@ async def line_callback(code: str | None = None, state: str | None = None, error
         raise HTTPException(status_code=400, detail=f"LINEログインがキャンセルされました: {error}")
     if not code or not state:
         raise HTTPException(status_code=400, detail="LINEログインに必要な情報が不足しています。")
-    consume_line_state(state)
+    nonce = consume_line_state(state)
 
     channel_id = os.getenv("LINE_CHANNEL_ID")
     channel_secret = os.getenv("LINE_CHANNEL_SECRET")
@@ -1552,7 +1599,14 @@ async def line_callback(code: str | None = None, state: str | None = None, error
             },
         )
         if token_res.status_code >= 400:
-            raise HTTPException(status_code=502, detail="LINEトークン取得に失敗しました。")
+            detail = "LINEトークン取得に失敗しました。Callback URL、Channel ID/Secret、APP_BASE_URLを確認してください。"
+            try:
+                token_error = token_res.json()
+                if token_error.get("error_description"):
+                    detail = f"{detail} LINE: {token_error.get('error_description')}"
+            except Exception:
+                pass
+            raise HTTPException(status_code=502, detail=detail)
         token_data = token_res.json()
         id_token = token_data.get("id_token")
         if not id_token:
@@ -1560,7 +1614,7 @@ async def line_callback(code: str | None = None, state: str | None = None, error
 
         verify_res = await client.post(
             "https://api.line.me/oauth2/v2.1/verify",
-            data={"id_token": id_token, "client_id": channel_id},
+            data={"id_token": id_token, "client_id": channel_id, "nonce": nonce},
         )
         if verify_res.status_code >= 400:
             raise HTTPException(status_code=502, detail="LINE IDトークン検証に失敗しました。")

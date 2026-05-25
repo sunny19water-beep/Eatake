@@ -888,7 +888,7 @@ function App() {
           ),
           React.createElement("button", { className: "ghost", onClick: logout }, "ログアウト")
         ),
-      !authUser &&
+      authRequired && !authUser &&
         React.createElement(
           "div",
           { className: "accountBox noAvatar" },

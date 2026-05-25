@@ -12,15 +12,25 @@ services:
         value: 3.13.12
       - key: STORAGE_BACKEND
         value: firestore
+      - key: AUTH_REQUIRED
+        value: "false"
+      - key: PROTOTYPE_USER_ID
+        value: prototype
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
       - key: AI_DAILY_LIMIT
         value: "10"
+      - key: LINE_REQUEST_EMAIL
+        value: "false"
       - key: GEMINI_API_KEY
         sync: false
       - key: LINE_CHANNEL_ID
         sync: false
       - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: SESSION_SECRET
         sync: false
       - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
         sync: false
