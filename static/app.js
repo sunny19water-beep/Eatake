@@ -26,7 +26,7 @@ const defaultSettings = {
 const emptyProfile = { ready: false, bmi: 0, category: "未設定", target_daily_deficit: 0, kg_to_lose: 0, bmr: 0, tdee: 0, message: "" };
 const emptyTargetPfc = { ready: false, calories: 0, protein: 0, fat: 0, carbs: 0, ratio: "" };
 const emptyEnergy = { ready: false, bmr: 0, tdee: 0, calories: 0, balance: 0, deficit: 0, surplus: 0, target_daily_deficit: 0, target_pfc: emptyTargetPfc, profile: emptyProfile, message: "" };
-const MIN_LOADING_MS = 1000;
+const MIN_LOADING_MS = 1500;
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -35,6 +35,34 @@ function wait(ms) {
 async function keepLoadingVisible(startedAt) {
   const remaining = MIN_LOADING_MS - (Date.now() - startedAt);
   if (remaining > 0) await wait(remaining);
+}
+
+function numericValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function suspiciousNutritionWarnings(meal) {
+  const checks = [
+    ["calories", "カロリー", "kcal", 3000],
+    ["protein", "タンパク質", "g", 200],
+    ["fat", "脂質", "g", 200],
+    ["carbs", "炭水化物", "g", 400],
+    ["sugar", "糖質", "g", 250],
+    ["fiber", "食物繊維", "g", 80],
+    ["salt", "塩分", "g", 10],
+  ];
+  return checks
+    .filter(([key, , , limit]) => numericValue(meal[key]) > limit)
+    .map(([key, label, unit, limit]) => `${label}: ${numericValue(meal[key])}${unit}（目安 ${limit}${unit}超）`);
+}
+
+function confirmSuspiciousNutrition(meal) {
+  const warnings = suspiciousNutritionWarnings(meal);
+  if (warnings.length === 0) return true;
+  return window.confirm(
+    `入力値がかなり大きいかもしれません。\n\n${warnings.join("\n")}\n\nこのまま保存しますか？`
+  );
 }
 
 function Stat({ label, value, unit, tone }) {
@@ -490,6 +518,7 @@ function App() {
   async function saveManualMeal() {
     const hasRequiredValue = manualMeal.dish_name.trim() && String(manualMeal.calories).trim();
     if (!hasRequiredValue) return;
+    if (!confirmSuspiciousNutrition(manualMeal)) return;
     const loadingStartedAt = Date.now();
     setBusy(true);
     setTapCount((count) => count + 1);
@@ -549,6 +578,7 @@ function App() {
 
   async function saveMealEdit() {
     if (!editingMeal) return;
+    if (!confirmSuspiciousNutrition(editingMeal)) return;
     const loadingStartedAt = Date.now();
     setBusy(true);
     try {
@@ -1402,7 +1432,8 @@ function App() {
       null,
       React.createElement(
         "section",
-        { className: "sectionHead" },
+        { className: "sectionHead reviewHead" },
+        React.createElement("strong", { className: "streakHeadline" }, `${streak?.streak || 0}日継続中！`),
         React.createElement("h2", null, "レビュー"),
         React.createElement("p", null, selectedDate)
       ),

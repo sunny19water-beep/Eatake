@@ -582,6 +582,26 @@ h2 {
   line-height: 1.6;
 }
 
+.reviewHead {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.streakHeadline {
+  display: inline-grid;
+  justify-self: start;
+  min-height: 32px;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid rgba(25, 107, 79, 0.22);
+  border-radius: 999px;
+  background: #f3fbf7;
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 950;
+}
+
 .diaryBox {
   display: grid;
   gap: 10px;
