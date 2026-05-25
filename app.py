@@ -355,6 +355,15 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                message TEXT NOT NULL
+            )
+            """
+        )
         purge_old_logs(conn)
 
 
@@ -1724,6 +1733,27 @@ def make_image_data_url(image_bytes: bytes) -> str:
     return f"data:image/jpeg;base64,{encoded}"
 
 
+def normalize_meal_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    dish_name = normalize_setting_text(payload.get("dish_name")) or "食事"
+    notes = normalize_setting_text(payload.get("notes"))
+    carbs = round(clamp_number(payload.get("carbs"), maximum=1000), 1)
+    fiber = round(clamp_number(payload.get("fiber"), maximum=300), 1)
+    sugar = round(clamp_number(payload.get("sugar"), maximum=1000), 1)
+    if sugar == 0 and carbs > 0:
+        sugar = max(0, round(carbs - fiber, 1))
+    return {
+        "dish_name": dish_name[:80],
+        "calories": round(clamp_number(payload.get("calories"))),
+        "protein": round(clamp_number(payload.get("protein"), maximum=500), 1),
+        "fat": round(clamp_number(payload.get("fat"), maximum=500), 1),
+        "carbs": carbs,
+        "fiber": fiber,
+        "sugar": sugar,
+        "salt": round(clamp_number(payload.get("salt"), maximum=100), 1),
+        "notes": notes[:240],
+    }
+
+
 def save_meal_estimate(estimate: dict[str, Any], user_id: str | None = None, image_data: str = "") -> dict[str, Any]:
     created_at = datetime.now().isoformat(timespec="seconds")
     day = today_key()
@@ -1854,3 +1884,121 @@ def delete_meal(meal_id: str, request: Request) -> dict[str, Any]:
             "meals": meals_for_day(conn, day),
             "days": available_days(conn),
         }
+
+
+@app.put("/api/meals/{meal_id}")
+def update_meal(meal_id: str, request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    user_id = scoped_user_id(request)
+    update = normalize_meal_payload(payload)
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        doc_ref = meals_collection(user_id).document(meal_id)
+        snap = doc_ref.get()
+        if not snap.exists:
+            raise HTTPException(status_code=404, detail="記録が見つかりません。")
+        day = (snap.to_dict() or {}).get("eaten_date", today_key())
+        doc_ref.set({**update, "updated_at": now_key()}, merge=True)
+        totals = firestore_totals_for_day(user_id, day)
+        return {
+            "date": day,
+            "meal": firestore_meal_to_dict(doc_ref.get()),
+            "totals": totals,
+            "energy": energy_summary(totals, get_settings(user_id=user_id)),
+            "meals": firestore_meals_for_day(user_id, day),
+            "days": firestore_available_days(user_id),
+        }
+
+    with get_db() as conn:
+        row = conn.execute("SELECT eaten_date FROM meals WHERE id = ?", (int(meal_id),)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="記録が見つかりません。")
+        day = row["eaten_date"]
+        conn.execute(
+            """
+            UPDATE meals
+            SET dish_name = ?, calories = ?, protein = ?, fat = ?, carbs = ?,
+                fiber = ?, sugar = ?, salt = ?, notes = ?
+            WHERE id = ?
+            """,
+            (
+                update["dish_name"],
+                update["calories"],
+                update["protein"],
+                update["fat"],
+                update["carbs"],
+                update["fiber"],
+                update["sugar"],
+                update["salt"],
+                update["notes"],
+                int(meal_id),
+            ),
+        )
+        totals = totals_for_day(conn, day)
+        updated = row_to_meal(conn.execute("SELECT * FROM meals WHERE id = ?", (int(meal_id),)).fetchone())
+        return {
+            "date": day,
+            "meal": updated,
+            "totals": totals,
+            "energy": energy_summary(totals, get_settings(conn)),
+            "meals": meals_for_day(conn, day),
+            "days": available_days(conn),
+        }
+
+
+@app.delete("/api/meals")
+def delete_all_meals(request: Request) -> dict[str, Any]:
+    user_id = scoped_user_id(request)
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        for collection_getter in (meals_collection, reviews_collection):
+            for doc in collection_getter(user_id).stream():
+                doc.reference.delete()
+        user_doc(user_id).collection("usage").document(today_key()).delete()
+        totals = empty_totals()
+        return {
+            "date": today_key(),
+            "totals": totals,
+            "energy": energy_summary(totals, get_settings(user_id=user_id)),
+            "meals": [],
+            "days": [],
+            "ai_usage": usage_status(user_id),
+        }
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM meals")
+        conn.execute("DELETE FROM daily_reviews")
+        conn.execute("DELETE FROM ai_usage")
+        totals = empty_totals()
+        return {
+            "date": today_key(),
+            "totals": totals,
+            "energy": energy_summary(totals, get_settings(conn)),
+            "meals": [],
+            "days": [],
+            "ai_usage": usage_status(),
+        }
+
+
+@app.post("/api/feedback")
+def submit_feedback(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, str]:
+    message = normalize_setting_text(payload.get("message"))
+    if len(message) < 3:
+        raise HTTPException(status_code=400, detail="フィードバックを3文字以上で入力してください。")
+    message = message[:1200]
+    created_at = now_key()
+    user_id = scoped_user_id(request)
+    if STORAGE_BACKEND == "firestore":
+        fs().collection("feedback").document().set(
+            {
+                "created_at": created_at,
+                "message": message,
+                "user_id": user_id or PROTOTYPE_USER_ID,
+                "auth_required": AUTH_REQUIRED,
+            }
+        )
+    else:
+        with get_db() as conn:
+            conn.execute("INSERT INTO feedback (created_at, message) VALUES (?, ?)", (created_at, message))
+    return {"status": "ok", "message": "送信しました。ありがとう。"}

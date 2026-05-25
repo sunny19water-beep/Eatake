@@ -27,7 +27,7 @@ function Stat({ label, value, unit, tone }) {
   );
 }
 
-function MealItem({ meal, onDelete }) {
+function MealItem({ meal, onDelete, onEdit }) {
   return React.createElement(
     "article",
     { className: meal.image_data ? "meal hasPhoto" : "meal noPhoto" },
@@ -43,7 +43,12 @@ function MealItem({ meal, onDelete }) {
       ),
       meal.notes && React.createElement("em", null, meal.notes)
     ),
-    React.createElement("button", { onClick: () => onDelete(meal.id), className: "delete" }, "取消")
+    React.createElement(
+      "div",
+      { className: "mealActions" },
+      React.createElement("button", { onClick: () => onEdit(meal), className: "ghost smallButton" }, "編集"),
+      React.createElement("button", { onClick: () => onDelete(meal.id), className: "delete smallButton" }, "取消")
+    )
   );
 }
 
@@ -81,6 +86,10 @@ function App() {
   const [preview, setPreview] = useState("");
   const [successText, setSuccessText] = useState("");
   const [successBurst, setSuccessBurst] = useState(false);
+  const [editingMeal, setEditingMeal] = useState(null);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [updateReady, setUpdateReady] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -94,6 +103,7 @@ function App() {
 
   useEffect(() => {
     refreshAll();
+    watchForAppUpdates();
     return () => stopCamera();
   }, []);
 
@@ -151,6 +161,30 @@ function App() {
     } finally {
       setRefreshing(false);
     }
+  }
+
+  function watchForAppUpdates() {
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.getRegistration().then((registration) => {
+      if (!registration) return;
+      registration.addEventListener("updatefound", () => {
+        const worker = registration.installing;
+        if (!worker) return;
+        worker.addEventListener("statechange", () => {
+          if (worker.state === "installed" && navigator.serviceWorker.controller) {
+            setUpdateReady(true);
+          }
+        });
+      });
+      registration.update();
+    });
+  }
+
+  function reloadApp() {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistration().then((registration) => registration?.waiting?.postMessage({ type: "SKIP_WAITING" }));
+    }
+    window.location.reload();
   }
 
   async function logout() {
@@ -247,6 +281,8 @@ function App() {
       setSuccessText(captureMode === "label" ? "成分表示を記録しました" : "食事を記録しました");
     } catch (error) {
       setMessage(error.message);
+      setCaptureMode("text");
+      setQuickText((current) => current || "");
     } finally {
       setBusy(false);
     }
@@ -358,6 +394,74 @@ function App() {
       React.createElement("small", null, `AI解析 あと${aiUsage.remaining}回 / 1日${aiUsage.limit}回`),
       lastRecordTaps && React.createElement("small", null, `記録完了まで ${lastRecordTaps} タップ`)
     );
+  }
+
+  async function saveMealEdit() {
+    if (!editingMeal) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/meals/${editingMeal.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editingMeal),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "編集に失敗しました");
+      setTotals(data.totals);
+      setEnergy(data.energy || emptyEnergy);
+      setMeals(data.meals);
+      setDays(data.days || days);
+      setReview(null);
+      setEditingMeal(null);
+      setSuccessText("記録を修正しました");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteAllData() {
+    if (!window.confirm("すべての食事記録とレビューを削除します。元に戻せません。")) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/meals", { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "削除に失敗しました");
+      setTotals(data.totals || emptyTotals);
+      setEnergy(data.energy || emptyEnergy);
+      setMeals([]);
+      setDays([]);
+      setReview(null);
+      setAiUsage(data.ai_usage || aiUsage);
+      setSuccessText("記録を削除しました");
+    } catch (error) {
+      setSettingsMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendFeedback() {
+    const message = feedbackText.trim();
+    if (!message) return;
+    setSettingsBusy(true);
+    setFeedbackMessage("");
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "送信に失敗しました");
+      setFeedbackText("");
+      setFeedbackMessage(data.message || "送信しました");
+    } catch (error) {
+      setFeedbackMessage(error.message);
+    } finally {
+      setSettingsBusy(false);
+    }
   }
 
   function renderQuickRecord() {
@@ -569,9 +673,93 @@ function App() {
           React.Fragment,
           { key: meal.id },
           index > 0 && React.createElement("div", { className: "mealDivider" }),
-          React.createElement(MealItem, { meal, onDelete: deleteMeal })
+          React.createElement(MealItem, { meal, onDelete: deleteMeal, onEdit: setEditingMeal })
         )
       )
+    );
+  }
+
+  function renderEditMealModal() {
+    if (!editingMeal) return null;
+    const fields = [
+      ["dish_name", "食事名", "text"],
+      ["calories", "カロリー kcal", "number"],
+      ["protein", "タンパク質 g", "number"],
+      ["fat", "脂質 g", "number"],
+      ["carbs", "炭水化物 g", "number"],
+      ["sugar", "糖質 g", "number"],
+      ["fiber", "食物繊維 g", "number"],
+      ["salt", "塩分 g", "number"],
+    ];
+    return React.createElement(
+      "div",
+      { className: "modalBackdrop" },
+      React.createElement(
+        "section",
+        { className: "editModal" },
+        React.createElement("h2", null, "記録を編集"),
+        React.createElement(
+          "div",
+          { className: "editGrid" },
+          fields.map(([key, label, type]) =>
+            React.createElement(
+              "label",
+              { key },
+              label,
+              React.createElement("input", {
+                type,
+                inputMode: type === "number" ? "decimal" : undefined,
+                value: editingMeal[key] ?? "",
+                onChange: (event) => setEditingMeal((current) => ({ ...current, [key]: event.target.value })),
+              })
+            )
+          ),
+          React.createElement(
+            "label",
+            { className: "wideEdit" },
+            "メモ",
+            React.createElement("textarea", {
+              value: editingMeal.notes || "",
+              rows: 3,
+              onChange: (event) => setEditingMeal((current) => ({ ...current, notes: event.target.value })),
+            })
+          )
+        ),
+        React.createElement(
+          "div",
+          { className: "modalActions" },
+          React.createElement("button", { className: "ghost", onClick: () => setEditingMeal(null) }, "閉じる"),
+          React.createElement("button", { className: "primary", onClick: saveMealEdit, disabled: busy }, busy ? "保存中" : "保存")
+        )
+      )
+    );
+  }
+
+  function renderPrivacyPanel() {
+    return React.createElement(
+      "details",
+      { className: "privacyPanel" },
+      React.createElement("summary", null, "プライバシーとデータ削除"),
+      React.createElement("p", null, "Eatakeは、食事写真、栄養推定結果、体重などの設定情報、AIレビューを記録します。写真は表示用に小さく圧縮して保存します。"),
+      React.createElement("p", null, "プロトタイプ中はログインなしで使えるため、公開環境では同じプロトタイプ領域に保存されます。個人情報を含む写真やメモは入れすぎないでください。"),
+      React.createElement("p", null, "本公開時は認証を有効にして、ユーザーごとに保存領域を分ける想定です。"),
+      React.createElement("button", { className: "delete wideButton", onClick: deleteAllData, disabled: busy }, "すべての記録を削除")
+    );
+  }
+
+  function renderFeedbackPanel() {
+    return React.createElement(
+      "section",
+      { className: "feedbackPanel" },
+      React.createElement("h2", null, "不具合・要望"),
+      React.createElement("textarea", {
+        value: feedbackText,
+        rows: 4,
+        placeholder: "例: 解析が外れた、画面が見づらい、こういう機能がほしい",
+        onChange: (event) => setFeedbackText(event.target.value),
+      }),
+      React.createElement("button", { className: "primary wideButton", onClick: sendFeedback, disabled: settingsBusy || !feedbackText.trim() }, settingsBusy ? "送信中" : "送信"),
+      feedbackMessage && React.createElement("p", { className: "formMessage" }, feedbackMessage)
     );
   }
 
@@ -1021,6 +1209,8 @@ function App() {
         )
       ),
       renderProfileSummary(),
+      renderPrivacyPanel(),
+      renderFeedbackPanel(),
       React.createElement(
         "button",
         { className: "primary wideButton", onClick: saveSettings, disabled: settingsBusy },
@@ -1083,6 +1273,14 @@ function App() {
     view === "record" && renderRecord(),
     view === "review" && renderReview(),
     view === "settings" && renderSettings(),
+    updateReady &&
+      React.createElement(
+        "div",
+        { className: "updateBanner", role: "status" },
+        React.createElement("span", null, "新しいバージョンがあります"),
+        React.createElement("button", { className: "primary", onClick: reloadApp }, "更新")
+      ),
+    renderEditMealModal(),
     successBurst &&
       React.createElement(
         "div",

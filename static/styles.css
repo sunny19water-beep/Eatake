@@ -635,6 +635,17 @@ h2 {
   grid-template-columns: 1fr auto;
 }
 
+.mealActions {
+  display: grid;
+  gap: 6px;
+}
+
+.smallButton {
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .mealPhoto {
   width: 86px;
   height: 86px;
@@ -778,7 +789,11 @@ h2 {
 }
 
 .settingsPanel input,
-.settingsPanel select {
+.settingsPanel select,
+.settingsPanel textarea,
+.feedbackPanel textarea,
+.editModal input,
+.editModal textarea {
   width: 100%;
   min-height: 46px;
   padding: 0 12px;
@@ -787,6 +802,113 @@ h2 {
   background: white;
   color: var(--text);
   font: inherit;
+}
+
+.settingsPanel textarea,
+.feedbackPanel textarea,
+.editModal textarea {
+  padding: 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.privacyPanel,
+.feedbackPanel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7faf8;
+}
+
+.privacyPanel summary {
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.privacyPanel p,
+.feedbackPanel p {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.65;
+}
+
+.feedbackPanel h2 {
+  font-size: 18px;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: end center;
+  padding: 16px;
+  background: rgba(16, 16, 14, 0.38);
+}
+
+.editModal {
+  display: grid;
+  gap: 14px;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 22px 60px rgba(16, 16, 14, 0.22);
+}
+
+.editGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.editGrid label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.wideEdit {
+  grid-column: 1 / -1;
+}
+
+.modalActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.updateBanner {
+  position: fixed;
+  left: 50%;
+  top: 12px;
+  z-index: 65;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(420px, calc(100% - 24px));
+  padding: 10px;
+  border: 1px solid rgba(25, 107, 79, 0.24);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 14px 40px rgba(16, 16, 14, 0.14);
+  transform: translateX(-50%);
+}
+
+.updateBanner span {
+  flex: 1;
+  font-weight: 900;
+}
+
+.updateBanner .primary {
+  min-height: 38px;
 }
 
 .wideButton {
@@ -954,6 +1076,15 @@ h2 {
 
   .meal .delete {
     grid-column: 1 / -1;
+  }
+
+  .mealActions {
+    grid-column: 1 / -1;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .editGrid {
+    grid-template-columns: 1fr;
   }
 
   .profileSummary {
