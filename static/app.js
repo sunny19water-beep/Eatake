@@ -86,6 +86,8 @@ function App() {
   const [preview, setPreview] = useState("");
   const [successText, setSuccessText] = useState("");
   const [successBurst, setSuccessBurst] = useState(false);
+  const [quickDate, setQuickDate] = useState("");
+  const [pendingEstimate, setPendingEstimate] = useState(null);
   const [editingMeal, setEditingMeal] = useState(null);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
@@ -145,6 +147,7 @@ function App() {
       const settingsData = await settingsRes.json();
       const weekJson = await weekRes.json();
       setSelectedDate(todayData.date);
+      setQuickDate(todayData.date);
       setTotals(todayData.totals || emptyTotals);
       setEnergy(todayData.energy || emptyEnergy);
       setMeals(todayData.meals || []);
@@ -264,11 +267,40 @@ function App() {
     formData.append("file", blob, filename);
 
     try {
-      const endpoint = captureMode === "label" ? "/api/analyze-label" : "/api/analyze";
+      const endpoint = captureMode === "label" ? "/api/estimate-label" : "/api/estimate";
       const response = await fetch(endpoint, { method: "POST", body: formData });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "解析に失敗しました");
+      setPendingEstimate({
+        ...data.estimate,
+        image_data: data.image_data || "",
+        date: quickDate || selectedDate,
+        mode: captureMode,
+      });
+      setAiUsage(data.ai_usage || aiUsage);
+      setMessage("推定結果を確認してください");
+    } catch (error) {
+      setMessage(error.message);
+      setCaptureMode("text");
+      setQuickText((current) => current || "");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmPendingEstimate() {
+    if (!pendingEstimate) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/meals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pendingEstimate),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "保存に失敗しました");
       setSelectedDate(data.meal.date);
+      setQuickDate(data.meal.date);
       setTotals(data.totals);
       setEnergy(data.energy || emptyEnergy);
       setMeals((current) => [data.meal, ...current.filter((meal) => meal.id !== data.meal.id)]);
@@ -277,12 +309,11 @@ function App() {
       setAiUsage(data.ai_usage || aiUsage);
       setLastRecordTaps(tapCount + 1);
       setTapCount(0);
-      setMessage(captureMode === "label" ? "栄養成分表示の数値を採用しました" : "今日の合計に自動加算しました");
-      setSuccessText(captureMode === "label" ? "成分表示を記録しました" : "食事を記録しました");
+      setMessage("今日の合計に自動加算しました");
+      setSuccessText(pendingEstimate.mode === "label" ? "成分表示を記録しました" : "食事を記録しました");
+      setPendingEstimate(null);
     } catch (error) {
       setMessage(error.message);
-      setCaptureMode("text");
-      setQuickText((current) => current || "");
     } finally {
       setBusy(false);
     }
@@ -358,7 +389,7 @@ function App() {
       const response = await fetch("/api/analyze-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, date: quickDate || selectedDate }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "てきとう記録に失敗しました");
@@ -469,6 +500,11 @@ function App() {
       "section",
       { className: "quickRecord" },
       React.createElement("label", null, "てきとう記録"),
+      React.createElement("input", {
+        type: "date",
+        value: quickDate || selectedDate,
+        onChange: (event) => setQuickDate(event.target.value),
+      }),
       React.createElement("textarea", {
         value: quickText,
         rows: 2,
@@ -494,6 +530,43 @@ function App() {
       React.createElement(Stat, { label: "糖質", value: totals.sugar, unit: "g" }),
       React.createElement(Stat, { label: "食物繊維", value: totals.fiber, unit: "g" }),
       React.createElement(Stat, { label: "塩分", value: totals.salt, unit: "g" })
+    );
+  }
+
+  function renderPrototypeBanner() {
+    if (authRequired) return null;
+    return React.createElement(
+      "section",
+      { className: "prototypeBanner" },
+      React.createElement("strong", null, "プロトタイプ版"),
+      React.createElement("span", null, "ログインなし公開中です。入力した内容は共通のテスト領域に保存されます。")
+    );
+  }
+
+  function renderPendingEstimate() {
+    if (!pendingEstimate) return null;
+    return React.createElement(
+      "section",
+      { className: "pendingEstimate" },
+      pendingEstimate.image_data && React.createElement("img", { src: pendingEstimate.image_data, alt: "" }),
+      React.createElement(
+        "div",
+        null,
+        React.createElement("h2", null, "この内容で記録しますか？"),
+        React.createElement("strong", null, pendingEstimate.dish_name),
+        React.createElement(
+          "p",
+          null,
+          `${pendingEstimate.calories}kcal / P${pendingEstimate.protein}g F${pendingEstimate.fat}g C${pendingEstimate.carbs}g`
+        ),
+        React.createElement("small", null, `記録日: ${pendingEstimate.date || selectedDate}`)
+      ),
+      React.createElement(
+        "div",
+        { className: "confirmActions" },
+        React.createElement("button", { className: "ghost", onClick: () => setPendingEstimate(null), disabled: busy }, "やり直す"),
+        React.createElement("button", { className: "primary", onClick: confirmPendingEstimate, disabled: busy }, busy ? "保存中" : "これで記録")
+      )
     );
   }
 
@@ -856,8 +929,15 @@ function App() {
     return React.createElement(
       React.Fragment,
       null,
+      renderPrototypeBanner(),
       renderEncouragement(),
       renderSetupGuide(),
+      React.createElement(
+        "section",
+        { className: "fastStart" },
+        React.createElement("button", { className: "bigCapture", onClick: startCamera, disabled: busy }, "すぐ撮る"),
+        React.createElement("button", { className: "textShortcut", onClick: () => setCaptureMode("text"), disabled: busy }, "文面で残す")
+      ),
       React.createElement(
         "section",
         { className: "modeSwitch" },
@@ -899,6 +979,7 @@ function App() {
           "文面記録"
         )
       ),
+      renderPendingEstimate(),
       captureMode !== "text" &&
         React.createElement(
           "section",
@@ -919,7 +1000,7 @@ function App() {
             React.createElement(
               "button",
               {
-                className: "shutter",
+                className: "shutter primaryCapture",
                 disabled: busy,
                 onClick: cameraOn ? captureAndSend : startCamera,
               },

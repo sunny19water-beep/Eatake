@@ -389,6 +389,102 @@ h2 {
   line-height: 1.55;
 }
 
+.quickRecord input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+}
+
+.prototypeBanner {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(166, 61, 43, 0.22);
+  border-radius: 8px;
+  background: #fff4ed;
+}
+
+.prototypeBanner strong {
+  color: var(--red);
+}
+
+.prototypeBanner span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.fastStart {
+  display: grid;
+  grid-template-columns: 1fr 126px;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.bigCapture,
+.textShortcut {
+  min-height: 72px;
+  border-radius: 8px;
+  font-weight: 900;
+}
+
+.bigCapture {
+  background: var(--green);
+  color: white;
+  font-size: 24px;
+  box-shadow: 0 14px 36px rgba(25, 107, 79, 0.22);
+}
+
+.textShortcut {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.pendingEstimate {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid rgba(25, 107, 79, 0.24);
+  border-radius: 8px;
+  background: #f3fbf7;
+}
+
+.pendingEstimate img {
+  width: 92px;
+  height: 92px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.pendingEstimate strong,
+.pendingEstimate p,
+.pendingEstimate small {
+  display: block;
+}
+
+.pendingEstimate p,
+.pendingEstimate small {
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.confirmActions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 .reviewBox {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -1034,6 +1130,23 @@ h2 {
 
   .modeSwitch {
     gap: 6px;
+  }
+
+  .fastStart {
+    grid-template-columns: 1fr;
+  }
+
+  .bigCapture {
+    min-height: 82px;
+  }
+
+  .pendingEstimate {
+    grid-template-columns: 76px 1fr;
+  }
+
+  .pendingEstimate img {
+    width: 76px;
+    height: 76px;
   }
 
   .modeSwitch button,

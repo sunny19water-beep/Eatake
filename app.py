@@ -376,6 +376,17 @@ def today_key() -> str:
     return date.today().isoformat()
 
 
+def normalize_day(value: Any | None = None) -> str:
+    day = normalize_setting_text(value) if value is not None else ""
+    if not day:
+        return today_key()
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日付はYYYY-MM-DDで指定してください。")
+    return day
+
+
 def oldest_kept_day() -> str:
     return (date.today() - timedelta(days=LOG_RETENTION_DAYS - 1)).isoformat()
 
@@ -1703,7 +1714,7 @@ def analyze_text(request: Request, payload: dict[str, Any] = Body(...)) -> dict[
     user_id = scoped_user_id(request)
     quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
     estimate = estimate_text_meal(str(payload.get("text") or ""))
-    result = save_meal_estimate(estimate, user_id)
+    result = save_meal_estimate(estimate, user_id, eaten_date=normalize_day(payload.get("date")))
     result["ai_usage"] = quota
     return result
 
@@ -1750,13 +1761,19 @@ def normalize_meal_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "fiber": fiber,
         "sugar": sugar,
         "salt": round(clamp_number(payload.get("salt"), maximum=100), 1),
+        "confidence": round(clamp_number(payload.get("confidence"), maximum=1), 2),
         "notes": notes[:240],
     }
 
 
-def save_meal_estimate(estimate: dict[str, Any], user_id: str | None = None, image_data: str = "") -> dict[str, Any]:
+def save_meal_estimate(
+    estimate: dict[str, Any],
+    user_id: str | None = None,
+    image_data: str = "",
+    eaten_date: str | None = None,
+) -> dict[str, Any]:
     created_at = datetime.now().isoformat(timespec="seconds")
-    day = today_key()
+    day = normalize_day(eaten_date)
 
     if STORAGE_BACKEND == "firestore":
         if not user_id:
@@ -1837,6 +1854,16 @@ async def analyze_image(request: Request, file: UploadFile = File(...)) -> dict[
     return result
 
 
+@app.post("/api/estimate")
+async def estimate_image(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+    image_bytes = await read_image(file)
+    user_id = scoped_user_id(request)
+    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    estimate = await estimate_nutrition(file, image_bytes)
+    reject_if_not_food(estimate)
+    return {"estimate": estimate, "image_data": make_image_data_url(image_bytes), "ai_usage": quota}
+
+
 @app.post("/api/analyze-label")
 async def analyze_label(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     image_bytes = await read_image(file)
@@ -1846,6 +1873,26 @@ async def analyze_label(request: Request, file: UploadFile = File(...)) -> dict[
     reject_if_not_label(estimate)
     result = save_meal_estimate(estimate, user_id, make_image_data_url(image_bytes))
     result["ai_usage"] = quota
+    return result
+
+
+@app.post("/api/estimate-label")
+async def estimate_label(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+    image_bytes = await read_image(file)
+    user_id = scoped_user_id(request)
+    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    estimate = await estimate_nutrition_label(file, image_bytes)
+    reject_if_not_label(estimate)
+    return {"estimate": estimate, "image_data": make_image_data_url(image_bytes), "ai_usage": quota}
+
+
+@app.post("/api/meals")
+def create_meal(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    user_id = scoped_user_id(request)
+    estimate = normalize_meal_payload(payload)
+    image_data = str(payload.get("image_data") or "")
+    result = save_meal_estimate(estimate, user_id, image_data=image_data, eaten_date=normalize_day(payload.get("date")))
+    result["ai_usage"] = usage_status(user_id)
     return result
 
 
