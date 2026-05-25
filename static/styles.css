@@ -312,6 +312,7 @@ h2 {
   color: var(--muted);
   font-weight: 900;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .modeSwitch button.active {
@@ -475,6 +476,12 @@ h2 {
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--text);
+}
+
+.textShortcut.active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: white;
 }
 
 .pendingEstimate {
@@ -1311,7 +1318,7 @@ h2 {
   }
 
   .fastStart {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) 112px;
   }
 
   .bigCapture {

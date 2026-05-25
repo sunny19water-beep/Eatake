@@ -1169,7 +1169,19 @@ function App() {
         "section",
         { className: "fastStart" },
         React.createElement("button", { className: "bigCapture", onClick: startCamera, disabled: busy }, "すぐ撮る"),
-        React.createElement("button", { className: "textShortcut", onClick: () => setCaptureMode("text"), disabled: busy }, "文面で残す")
+        React.createElement(
+          "button",
+          {
+            className: captureMode === "text" ? "textShortcut active" : "textShortcut",
+            onClick: () => {
+              setCaptureMode("text");
+              setMessage("文面だけでも記録できます");
+              stopCamera();
+            },
+            disabled: busy,
+          },
+          "文面で残す"
+        )
       ),
       React.createElement(
         "section",
@@ -1210,19 +1222,6 @@ function App() {
             disabled: busy,
           },
           "成分手入力"
-        ),
-        React.createElement(
-          "button",
-          {
-            className: captureMode === "text" ? "active" : "",
-            onClick: () => {
-              setCaptureMode("text");
-              setMessage("文面だけでも記録できます");
-              stopCamera();
-            },
-            disabled: busy,
-          },
-          "文面記録"
         )
       ),
       renderPendingEstimate(),
