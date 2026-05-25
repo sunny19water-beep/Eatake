@@ -485,8 +485,10 @@ def calculate_tdee(settings: dict[str, str]) -> dict[str, Any]:
             "message": "基礎代謝、または年齢・体重・身長・性別を設定するとTDEEを表示します。",
         }
 
-    sex_offset = 5 if sex == "男性" else -161
-    bmr = (10 * weight) + (6.25 * height) - (5 * age) + sex_offset
+    if sex == "男性":
+        bmr = (13.397 * weight) + (4.799 * height) - (5.677 * age) + 88.362
+    else:
+        bmr = (9.247 * weight) + (3.098 * height) - (4.33 * age) + 447.593
     tdee = bmr * factor
     return {
         "ready": True,
@@ -558,6 +560,41 @@ def energy_summary(totals: dict[str, float], settings: dict[str, str]) -> dict[s
         "surplus": max(0, balance),
         "profile": profile,
         "target_daily_deficit": profile["target_daily_deficit"],
+        "target_pfc": target_pfc(settings, tdee, profile),
+    }
+
+
+def target_pfc(settings: dict[str, str], tdee: dict[str, Any] | None = None, profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    if tdee is None:
+        tdee = calculate_tdee(settings)
+    if profile is None:
+        profile = profile_metrics(settings)
+    if not tdee.get("ready"):
+        return {"ready": False, "calories": 0, "protein": 0, "fat": 0, "carbs": 0, "ratio": ""}
+
+    purpose = settings.get("purpose") or "健康維持"
+    base = int(tdee["tdee"])
+    if purpose in {"ダイエット", "減量"}:
+        deficit = int(profile.get("target_daily_deficit") or 500)
+        calories = max(1200, base - min(deficit, 900))
+        ratio = (0.30, 0.25, 0.45)
+    elif purpose == "増量":
+        calories = base + 300
+        ratio = (0.25, 0.25, 0.50)
+    else:
+        calories = base
+        ratio = (0.20, 0.25, 0.55)
+
+    protein = round((calories * ratio[0]) / 4, 1)
+    fat = round((calories * ratio[1]) / 9, 1)
+    carbs = round((calories * ratio[2]) / 4, 1)
+    return {
+        "ready": True,
+        "calories": round(calories),
+        "protein": protein,
+        "fat": fat,
+        "carbs": carbs,
+        "ratio": f"P{round(ratio[0] * 100)} F{round(ratio[1] * 100)} C{round(ratio[2] * 100)}",
     }
 
 
@@ -786,6 +823,8 @@ def current_week_payload(user_id: str | None = None) -> dict[str, Any]:
                 }
             )
         totals = totals_between(conn, start.isoformat(), today.isoformat())
+    averages = {key: round(value / 7, 1) for key, value in totals.items()}
+    averages["calories"] = round(totals["calories"] / 7)
     recorded_days = sum(1 for item in days if item["meal_count"] > 0)
     if recorded_days >= 5:
         message = "この1週間、かなり戻ってこられてる。続ける力が育ってます。"
@@ -797,6 +836,7 @@ def current_week_payload(user_id: str | None = None) -> dict[str, Any]:
         "start": start.isoformat(),
         "end": today.isoformat(),
         "totals": totals,
+        "averages": averages,
         "days": days,
         "message": message,
     }
@@ -978,10 +1018,14 @@ def firestore_current_week_payload(user_id: str) -> dict[str, Any]:
         message = "今週も記録を残せた日がある。それだけで次につながってます。"
     else:
         message = "今週はここからでOK。まず1回だけ記録してみよう。"
+    totals = sum_meals(all_meals)
+    averages = {key: round(value / 7, 1) for key, value in totals.items()}
+    averages["calories"] = round(totals["calories"] / 7)
     return {
         "start": start.isoformat(),
         "end": today.isoformat(),
-        "totals": sum_meals(all_meals),
+        "totals": totals,
+        "averages": averages,
         "days": days,
         "message": message,
     }
@@ -1065,6 +1109,26 @@ def demo_review(day: str, totals: dict[str, float], settings: dict[str, str]) ->
     return (
         f"今日も記録できてるのがまず強い。{purpose}に向けて、撮った分だけ自分を見られてます。次も1枚だけでOK。"
     )
+
+
+def template_review(day: str, totals: dict[str, float], settings: dict[str, str]) -> str:
+    energy = energy_summary(totals, settings)
+    target = energy["target_pfc"]
+    if totals["calories"] == 0:
+        return "今日はまだ白紙。アプリを開けた時点で前進です。まず1枚だけ撮れたら十分。"
+    if not target["ready"]:
+        return "今日も記録できてるのがまず強い。設定を少し埋めると、PFCの目安も一緒に見られます。"
+
+    gaps = [
+        ("タンパク質", round(target["protein"] - totals["protein"], 1), "g"),
+        ("脂質", round(target["fat"] - totals["fat"], 1), "g"),
+        ("炭水化物", round(target["carbs"] - totals["carbs"], 1), "g"),
+    ]
+    shortage = [f"{name}あと{amount}{unit}" for name, amount, unit in gaps if amount > 0]
+    if shortage:
+        pfc_text = "、".join(shortage[:2])
+        return f"今日も記録できてえらい。目標PFCまでは{pfc_text}くらい。次の1食で少し足せたら十分です。"
+    return "今日のPFCはかなり目標に近いです。ここまで記録できているのが強いので、明日も1枚だけでOK。"
 
 
 def parse_json_response(text: str) -> dict[str, Any]:
@@ -1473,21 +1537,8 @@ def create_daily_review(day: str, request: Request) -> dict[str, Any]:
     user_id = scoped_user_id(request)
     payload = day_payload(day, user_id)
     settings = get_settings(user_id=user_id)
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        text = demo_review(day, payload["totals"], settings)
-        quota = usage_status(user_id)
-    else:
-        quota = consume_ai_quota(user_id)
-        client = genai.Client(api_key=api_key)
-        try:
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=[build_review_text(day, payload["totals"], payload["meals"], settings)],
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Gemini API error: {exc}")
-        text = (response.text or "").strip() or demo_review(day, payload["totals"], settings)
+    text = template_review(day, payload["totals"], settings)
+    quota = usage_status(user_id)
     return {"review": save_review(day, text, user_id), "ai_usage": quota}
 
 

@@ -13,7 +13,8 @@ const defaultSettings = {
   purpose: "健康維持",
 };
 const emptyProfile = { ready: false, bmi: 0, category: "未設定", target_daily_deficit: 0, kg_to_lose: 0, bmr: 0, tdee: 0, message: "" };
-const emptyEnergy = { ready: false, bmr: 0, tdee: 0, calories: 0, balance: 0, deficit: 0, surplus: 0, target_daily_deficit: 0, profile: emptyProfile, message: "" };
+const emptyTargetPfc = { ready: false, calories: 0, protein: 0, fat: 0, carbs: 0, ratio: "" };
+const emptyEnergy = { ready: false, bmr: 0, tdee: 0, calories: 0, balance: 0, deficit: 0, surplus: 0, target_daily_deficit: 0, target_pfc: emptyTargetPfc, profile: emptyProfile, message: "" };
 
 function Stat({ label, value, unit, tone }) {
   return React.createElement(
@@ -392,6 +393,26 @@ function App() {
     );
   }
 
+  function renderTargetPfc() {
+    const target = energy.target_pfc || emptyTargetPfc;
+    return React.createElement(
+      "section",
+      { className: "targetPfc" },
+      React.createElement("h2", null, "目標PFC"),
+      React.createElement(
+        "div",
+        null,
+        React.createElement("span", null, target.ready ? `${target.calories} kcal / ${target.ratio}` : "設定を保存すると表示します"),
+        target.ready &&
+          React.createElement(
+            "strong",
+            null,
+            `P${target.protein}g F${target.fat}g C${target.carbs}g`
+          )
+      )
+    );
+  }
+
   function renderAiNotice() {
     return React.createElement(
       "section",
@@ -436,12 +457,12 @@ function App() {
         "div",
         null,
         React.createElement("h2", null, "AIレビュー"),
-        React.createElement("p", null, review ? review.text : "1日の記録を確定すると、設定に合わせてレビューします")
+        React.createElement("p", null, review ? review.text : "今日の記録を確定すると、PFC目標との差と続けやすい一言を返します")
       ),
       React.createElement(
         "button",
         { className: "primary", onClick: createReview, disabled: reviewBusy },
-        reviewBusy ? "作成中" : "確定"
+        reviewBusy ? "作成中" : "今日の記録を確定"
       )
     );
   }
@@ -537,6 +558,7 @@ function App() {
       ),
       renderTotals(),
       renderEnergyBalance(),
+      renderTargetPfc(),
       renderAiNotice(),
       renderQuickRecord()
     );
@@ -554,8 +576,8 @@ function App() {
       ),
       renderTotals(),
       renderEnergyBalance(),
+      renderTargetPfc(),
       renderAiNotice(),
-      renderReviewBox(),
       renderEncouragement(),
       renderMealList("この日の記録はまだありません")
     );
@@ -569,9 +591,12 @@ function App() {
         "section",
         { className: "recordSwitch" },
         React.createElement("button", { className: recordView === "daily" ? "active" : "", onClick: () => setRecordView("daily") }, "1日"),
-        React.createElement("button", { className: recordView === "week" ? "active" : "", onClick: () => setRecordView("week") }, "1週間")
+        React.createElement("button", { className: recordView === "week" ? "active" : "", onClick: () => setRecordView("week") }, "1週間"),
+        React.createElement("button", { className: recordView === "calendar" ? "active" : "", onClick: () => setRecordView("calendar") }, "カレンダー")
       ),
-      recordView === "daily" ? renderDaily() : renderWeek()
+      recordView === "daily" && renderDaily(),
+      recordView === "week" && renderWeek(),
+      recordView === "calendar" && renderCalendarLog()
     );
   }
 
@@ -594,11 +619,11 @@ function App() {
       React.createElement(
         "section",
         { className: "totals" },
-        React.createElement(Stat, { label: "週間カロリー", value: data.totals.calories, unit: "kcal", tone: "wide" }),
-        React.createElement(Stat, { label: "タンパク質", value: data.totals.protein, unit: "g" }),
-        React.createElement(Stat, { label: "脂質", value: data.totals.fat, unit: "g" }),
-        React.createElement(Stat, { label: "糖質", value: data.totals.sugar, unit: "g" }),
-        React.createElement(Stat, { label: "食物繊維", value: data.totals.fiber, unit: "g" })
+        React.createElement(Stat, { label: "平均カロリー", value: (data.averages || data.totals).calories, unit: "kcal/日", tone: "wide" }),
+        React.createElement(Stat, { label: "平均タンパク質", value: (data.averages || data.totals).protein, unit: "g/日" }),
+        React.createElement(Stat, { label: "平均脂質", value: (data.averages || data.totals).fat, unit: "g/日" }),
+        React.createElement(Stat, { label: "平均糖質", value: (data.averages || data.totals).sugar, unit: "g/日" }),
+        React.createElement(Stat, { label: "平均食物繊維", value: (data.averages || data.totals).fiber, unit: "g/日" })
       ),
       React.createElement(
         "section",
@@ -623,7 +648,7 @@ function App() {
     );
   }
 
-  function renderLogs() {
+  function renderCalendarLog() {
     const maxDate = days[0]?.date || selectedDate;
     const minDate = days[days.length - 1]?.date || selectedDate;
 
@@ -648,31 +673,30 @@ function App() {
       ),
       React.createElement(
         "section",
-        { className: "dateRail" },
-        days.map((day) =>
-          React.createElement(
-            "button",
-            {
-              key: day.date,
-              className: day.date === selectedDate ? "dateChip active" : "dateChip",
-              onClick: () => loadDay(day.date),
-            },
-            React.createElement("strong", null, day.date.slice(5).replace("-", "/")),
-            React.createElement("span", null, `${day.meal_count}食 ${day.calories}kcal`)
-          )
-        )
-      ),
-      React.createElement(
-        "section",
         { className: "sectionHead" },
-        React.createElement("h2", null, "これまでのログ"),
+        React.createElement("h2", null, "カレンダー"),
         React.createElement("p", null, selectedDate)
       ),
       renderTotals(),
       renderEnergyBalance(),
       renderAiNotice(),
-      renderReviewBox(),
       renderMealList("この日の記録はありません")
+    );
+  }
+
+  function renderReview() {
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(
+        "section",
+        { className: "sectionHead" },
+        React.createElement("h2", null, "レビュー"),
+        React.createElement("p", null, selectedDate)
+      ),
+      renderTargetPfc(),
+      renderReviewBox(),
+      renderEncouragement()
     );
   }
 
@@ -860,12 +884,12 @@ function App() {
       { className: "tabs" },
       React.createElement("button", { className: view === "camera" ? "active" : "", onClick: () => setView("camera") }, "撮影"),
       React.createElement("button", { className: view === "record" ? "active" : "", onClick: () => setView("record") }, "記録"),
-      React.createElement("button", { className: view === "logs" ? "active" : "", onClick: () => setView("logs") }, "ログ"),
+      React.createElement("button", { className: view === "review" ? "active" : "", onClick: () => setView("review") }, "レビュー"),
       React.createElement("button", { className: view === "settings" ? "active" : "", onClick: () => setView("settings") }, "設定")
     ),
     view === "camera" && renderCamera(),
     view === "record" && renderRecord(),
-    view === "logs" && renderLogs(),
+    view === "review" && renderReview(),
     view === "settings" && renderSettings()
   );
 }
