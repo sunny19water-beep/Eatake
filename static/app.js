@@ -571,7 +571,6 @@ function App() {
       { className: "encouragement" },
       React.createElement("strong", null, streak ? streak.message : "今日も1枚だけでOK"),
       weeklySummary?.show && React.createElement("span", null, weeklySummary.text),
-      React.createElement("small", null, `AI解析 あと${aiUsage.remaining}回 / 1日${aiUsage.limit}回`),
       lastRecordTaps && React.createElement("small", null, `記録完了まで ${lastRecordTaps} タップ`)
     );
   }

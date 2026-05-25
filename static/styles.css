@@ -621,22 +621,28 @@ h2 {
 
 .reviewHead {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   margin-bottom: 14px;
 }
 
 .streakHeadline {
-  display: inline-grid;
-  justify-self: start;
-  min-height: 32px;
+  display: grid;
+  justify-self: stretch;
+  min-height: 86px;
   align-items: center;
-  padding: 0 12px;
-  border: 1px solid rgba(25, 107, 79, 0.22);
-  border-radius: 999px;
-  background: #f3fbf7;
-  color: var(--green);
-  font-size: 15px;
+  justify-content: center;
+  padding: 14px 18px;
+  border: 1px solid rgba(25, 107, 79, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(25, 107, 79, 0.12), rgba(242, 201, 76, 0.22)),
+    #f3fbf7;
+  color: var(--ink);
+  font-size: 34px;
   font-weight: 950;
+  line-height: 1;
+  text-align: center;
+  box-shadow: 0 14px 34px rgba(25, 107, 79, 0.12);
 }
 
 .diaryBox {
