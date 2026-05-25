@@ -844,14 +844,14 @@ function App() {
       return React.createElement(
         "section",
         { className: "pfcGapBox" },
-        React.createElement("h2", null, "PFC推奨量との差"),
-        React.createElement("p", null, "設定を保存すると、推奨PFCと不足量を表示します。")
+        React.createElement("strong", { className: "noData" }, "no data"),
+        React.createElement("p", { className: "pfcGuide" }, "PFCを導出するには、設定で年齢・身長・体重・性別・目的を保存してください。"),
+        React.createElement("button", { className: "ghost compactButton", onClick: () => setView("settings") }, "設定する")
       );
     }
     return React.createElement(
       "section",
       { className: "pfcGapBox" },
-      React.createElement("h2", null, "PFC推奨量との差"),
       React.createElement("p", null, `${target.calories} kcal / ${target.ratio}`),
       React.createElement(
         "div",
@@ -883,7 +883,8 @@ function App() {
             )
           );
         })
-      )
+      ),
+      React.createElement("p", { className: "pfcGuide" }, "PFC推奨量は設定の目的・体格・活動量から導出しています。")
     );
   }
 
@@ -1216,9 +1217,7 @@ function App() {
     return React.createElement(
       React.Fragment,
       null,
-      renderPrototypeBanner(),
       renderEncouragement(),
-      renderSetupGuide(),
       React.createElement(
         "section",
         { className: "fastStart" },
@@ -1328,6 +1327,15 @@ function App() {
     );
   }
 
+  function renderDailySubhead(title, text) {
+    return React.createElement(
+      "div",
+      { className: "dailySubhead" },
+      React.createElement("h3", null, title),
+      text && React.createElement("span", null, text)
+    );
+  }
+
   function renderDiary() {
     return React.createElement(
       "section",
@@ -1363,13 +1371,16 @@ function App() {
         "section",
         { className: "sectionHead dailyHead" },
         React.createElement("h2", null, "1日の記録"),
-        React.createElement("p", null, selectedDate),
-        renderDiary()
+        React.createElement("p", null, selectedDate)
       ),
       renderTotals(),
+      renderDailySubhead("グラフ", "推奨PFCとの差"),
       renderPfcGapGraph(),
       renderAiNotice(),
       renderEncouragement(),
+      renderDailySubhead("日記", "体調や気づきを一言"),
+      renderDiary(),
+      renderDailySubhead("記録", "この日に食べたもの"),
       renderMealList("この日の記録はまだありません")
     );
   }
@@ -1468,7 +1479,6 @@ function App() {
         React.createElement("h2", null, "カレンダー"),
         React.createElement("p", null, selectedDate)
       ),
-      renderSetupGuide(),
       renderTotals(),
       renderPfcGapGraph(),
       renderAiNotice(),
@@ -1488,7 +1498,6 @@ function App() {
         React.createElement("p", null, selectedDate)
       ),
       renderEncouragement(),
-      renderSetupGuide(),
       renderReviewBox()
     );
   }

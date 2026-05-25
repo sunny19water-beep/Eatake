@@ -74,6 +74,7 @@ button:not(:disabled):active {
 
 h1,
 h2,
+h3,
 p {
   margin: 0;
 }
@@ -90,8 +91,28 @@ h2 {
 
 .dailyHead {
   display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.dailySubhead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 10px;
-  margin-bottom: 14px;
+  margin: 6px 0 8px;
+}
+
+.dailySubhead h3 {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.dailySubhead span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
 }
 
 .ghost,
@@ -144,6 +165,13 @@ h2 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
   margin-bottom: 12px;
+}
+
+.compactButton {
+  min-height: 38px;
+  justify-self: start;
+  padding: 0 12px;
+  font-size: 13px;
 }
 
 .stat {
@@ -899,6 +927,13 @@ h2 {
   background: var(--panel);
 }
 
+.pfcGapBox .noData {
+  display: block;
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1;
+}
+
 .pfcGapBox h2 {
   font-size: 17px;
 }
@@ -907,6 +942,11 @@ h2 {
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
+}
+
+.pfcGapBox .pfcGuide {
+  padding-top: 2px;
+  line-height: 1.5;
 }
 
 .pfcBars {
@@ -1423,6 +1463,16 @@ h2 {
     min-height: 46px;
     padding: 0 5px;
     font-size: 12px;
+  }
+
+  .dailySubhead {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .dailySubhead span {
+    text-align: left;
   }
 
   .manualGrid {
