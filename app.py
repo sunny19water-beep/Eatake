@@ -44,6 +44,8 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 PURPOSES = ["ダイエット", "増量", "健康維持", "減量"]
 PURPOSE_SET = set(PURPOSES)
+REVIEW_TONES = ["甘目", "普通", "厳しめ"]
+REVIEW_TONE_SET = set(REVIEW_TONES)
 DEFAULT_SETTINGS = {
     "age": "",
     "weight": "",
@@ -54,6 +56,7 @@ DEFAULT_SETTINGS = {
     "target_weight": "",
     "target_weeks": "",
     "purpose": "健康維持",
+    "review_tone": "甘目",
 }
 
 _firestore_client: firestore.Client | None = None
@@ -381,9 +384,12 @@ def save_settings(payload: dict[str, Any], user_id: str | None = None) -> dict[s
         "target_weight": normalize_setting_text(payload.get("target_weight")),
         "target_weeks": normalize_setting_text(payload.get("target_weeks")),
         "purpose": normalize_setting_text(payload.get("purpose")) or DEFAULT_SETTINGS["purpose"],
+        "review_tone": normalize_setting_text(payload.get("review_tone")) or DEFAULT_SETTINGS["review_tone"],
     }
     if settings["purpose"] not in PURPOSE_SET:
         raise HTTPException(status_code=400, detail="目的は指定された4択から選んでください。")
+    if settings["review_tone"] not in REVIEW_TONE_SET:
+        raise HTTPException(status_code=400, detail="AIレビューの口調は指定された選択肢から選んでください。")
 
     for key in ("age", "weight", "height"):
         if settings[key] and clamp_number(settings[key], maximum=400) <= 0:
@@ -1044,20 +1050,63 @@ def profile_summary(settings: dict[str, str]) -> str:
     )
 
 
-def build_review_text(day: str, totals: dict[str, float], meals: list[dict[str, Any]], settings: dict[str, str]) -> str:
+def review_tone_instruction(tone: str) -> str:
+    if tone == "厳しめ":
+        return (
+            "口調は厳しめ。ただし人格否定や責める言葉は禁止。"
+            "改善点をはっきり言い、次の1アクションを具体的に示す。"
+        )
+    if tone == "普通":
+        return (
+            "口調は普通。褒めと改善提案を半々にし、落ち着いたコーチのように話す。"
+        )
+    return (
+        "口調は甘目。まず行動をしっかり褒め、改善点はやわらかく言う。"
+        "完璧を求めず、続けられることを最優先にする。"
+    )
+
+
+def build_review_text(
+    day: str,
+    totals: dict[str, float],
+    meals: list[dict[str, Any]],
+    settings: dict[str, str],
+    user_id: str | None = None,
+) -> str:
     energy = energy_summary(totals, settings)
+    target = energy["target_pfc"]
+    streak = streak_status(user_id)
+    tone = settings.get("review_tone") or DEFAULT_SETTINGS["review_tone"]
     meal_lines = "\n".join(
         f"- {meal['dish_name']}: {meal['calories']}kcal P{meal['protein']}g F{meal['fat']}g C{meal['carbs']}g 糖質{meal['sugar']}g 食物繊維{meal['fiber']}g 塩分{meal['salt']}g"
         for meal in meals
     ) or "- 記録なし"
+    if target["ready"]:
+        pfc_gap = (
+            f"目標PFC: {target['calories']}kcal / P{target['protein']}g F{target['fat']}g C{target['carbs']}g。"
+            f"差分: P{round(target['protein'] - totals['protein'], 1)}g、"
+            f"F{round(target['fat'] - totals['fat'], 1)}g、"
+            f"C{round(target['carbs'] - totals['carbs'], 1)}g。"
+        )
+    else:
+        pfc_gap = "目標PFCは未設定。設定が足りない場合は、設定を埋めると精度が上がると軽く伝える。"
     return f"""
-あなたはライト層向けの、やさしく褒める食事記録アプリのAIです。
-数値のダメ出しではなく、記録した行動そのものを褒めてください。
-「多い」「少ない」「不足」「注意」など責める言い方は避けてください。
-ユーザーの設定、推定TDEE、1日の食事ログを見て、目的に合わせた短い応援コメントを日本語で返してください。
+あなたはライト層向けの食事記録アプリ Eatake のAIレビュー担当です。
+ユーザーは継続が苦手でも続けられる体験を求めています。
+レビューは日本語で、少し長めに、読みやすい段落で返してください。
+デフォルトは甘目で、記録した行動そのものを褒めます。
+医学的な断定、過度な危機感、人格否定、強い説教は禁止です。
+
+口調設定: {tone}
+口調ルール: {review_tone_instruction(tone)}
 
 日付: {day}
 ユーザー設定: {profile_summary(settings)}
+連続記録:
+- 現在のストリーク: {streak['streak']}日
+- 今日記録済み: {streak['today_recorded']}
+目標PFC:
+- {pfc_gap}
 推定消費:
 - TDEE: {energy['tdee']}kcal
 - 摂取との差分: {energy['balance']}kcal
@@ -1074,8 +1123,43 @@ def build_review_text(day: str, totals: dict[str, float], meals: list[dict[str, 
 食事ログ:
 {meal_lines}
 
-返答は120文字以内。褒める一言を中心にして、最後に軽い次の一手を添えてください。
+必ず次の順番で書いてください。
+1. 今日の食事の振り返り
+2. 記録したことへの褒め
+3. 連続記録している場合は、その継続への褒め。連続でない場合は責めずに再スタートを応援
+4. 次につながる小さな一手
+
+PFCは、足りない/多いを必要なら具体的なgで触れてください。
+ただし甘目では「あと少し足せると良さそう」のようにやわらかく。
+返答は280〜420文字くらい。箇条書きではなく、自然な文章で返してください。
 """
+
+
+def generate_ai_review(
+    day: str,
+    totals: dict[str, float],
+    meals: list[dict[str, Any]],
+    settings: dict[str, str],
+    user_id: str | None = None,
+) -> str:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return template_review(day, totals, settings)
+
+    client = genai.Client(api_key=api_key)
+    prompt = build_review_text(day, totals, meals, settings, user_id)
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[prompt],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Gemini API error: {exc}")
+
+    text = (response.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=502, detail="Gemini review response was empty.")
+    return text
 
 
 def save_review(day: str, review: str, user_id: str | None = None) -> dict[str, str]:
@@ -1517,14 +1601,14 @@ def get_day(day: str, request: Request) -> dict[str, Any]:
 @app.get("/api/settings")
 def read_settings(request: Request) -> dict[str, Any]:
     settings = get_settings(user_id=scoped_user_id(request))
-    return {"settings": settings, "purposes": PURPOSES, "profile": profile_metrics(settings)}
+    return {"settings": settings, "purposes": PURPOSES, "review_tones": REVIEW_TONES, "profile": profile_metrics(settings)}
 
 
 @app.put("/api/settings")
 def update_settings(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     user_id = scoped_user_id(request)
     settings = save_settings(payload, user_id)
-    return {"settings": settings, "purposes": PURPOSES, "profile": profile_metrics(settings)}
+    return {"settings": settings, "purposes": PURPOSES, "review_tones": REVIEW_TONES, "profile": profile_metrics(settings)}
 
 
 @app.post("/api/days/{day}/review")
@@ -1537,8 +1621,8 @@ def create_daily_review(day: str, request: Request) -> dict[str, Any]:
     user_id = scoped_user_id(request)
     payload = day_payload(day, user_id)
     settings = get_settings(user_id=user_id)
-    text = template_review(day, payload["totals"], settings)
-    quota = usage_status(user_id)
+    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    text = generate_ai_review(day, payload["totals"], payload["meals"], settings, user_id)
     return {"review": save_review(day, text, user_id), "ai_usage": quota}
 
 

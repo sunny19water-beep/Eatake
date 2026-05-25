@@ -11,6 +11,7 @@ const defaultSettings = {
   target_weight: "",
   target_weeks: "",
   purpose: "健康維持",
+  review_tone: "甘目",
 };
 const emptyProfile = { ready: false, bmi: 0, category: "未設定", target_daily_deficit: 0, kg_to_lose: 0, bmr: 0, tdee: 0, message: "" };
 const emptyTargetPfc = { ready: false, calories: 0, protein: 0, fat: 0, carbs: 0, ratio: "" };
@@ -65,6 +66,7 @@ function App() {
   const [settings, setSettings] = useState(defaultSettings);
   const [profile, setProfile] = useState(emptyProfile);
   const [purposes, setPurposes] = useState(["ダイエット", "増量", "健康維持", "減量"]);
+  const [reviewTones, setReviewTones] = useState(["甘目", "普通", "厳しめ"]);
   const [cameraOn, setCameraOn] = useState(false);
   const [captureMode, setCaptureMode] = useState("meal");
   const [busy, setBusy] = useState(false);
@@ -132,6 +134,7 @@ function App() {
       setSettings(settingsData.settings || defaultSettings);
       setProfile(settingsData.profile || todayData.energy?.profile || emptyProfile);
       setPurposes(settingsData.purposes || purposes);
+      setReviewTones(settingsData.review_tones || reviewTones);
     } finally {
       setRefreshing(false);
     }
@@ -287,6 +290,7 @@ function App() {
       setSettings(data.settings);
       setProfile(data.profile || emptyProfile);
       setPurposes(data.purposes || purposes);
+      setReviewTones(data.review_tones || reviewTones);
       setSettingsMessage("保存しました");
     } catch (error) {
       setSettingsMessage(error.message);
@@ -468,7 +472,7 @@ function App() {
         "div",
         null,
         React.createElement("h2", null, "AIレビュー"),
-        React.createElement("p", null, review ? review.text : "今日の記録を確定すると、PFC目標との差と続けやすい一言を返します")
+        React.createElement("p", null, review ? review.text : "今日の記録を確定すると、AIが食事の振り返り、記録できたこと、継続、次の一手をまとめます")
       ),
       React.createElement(
         "button",
@@ -875,6 +879,16 @@ function App() {
           "select",
           { value: settings.purpose, onChange: (event) => setSetting("purpose", event.target.value) },
           purposes.map((purpose) => React.createElement("option", { key: purpose, value: purpose }, purpose))
+        )
+      ),
+      React.createElement(
+        "label",
+        null,
+        "AIレビューの口調",
+        React.createElement(
+          "select",
+          { value: settings.review_tone || "甘目", onChange: (event) => setSetting("review_tone", event.target.value) },
+          reviewTones.map((tone) => React.createElement("option", { key: tone, value: tone }, tone))
         )
       ),
       renderProfileSummary(),

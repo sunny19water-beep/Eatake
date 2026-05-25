@@ -404,6 +404,7 @@ h2 {
   margin-top: 10px;
   color: var(--muted);
   line-height: 1.7;
+  white-space: pre-line;
 }
 
 .reviewBox .primary {
