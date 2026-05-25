@@ -937,7 +937,7 @@ function App() {
       React.createElement(
         "div",
         null,
-        React.createElement("p", { className: "eyebrow" }, "PFC Camera"),
+        React.createElement("p", { className: "eyebrow" }, "Eatake"),
         React.createElement("h1", null, `${totals.calories} kcal`)
       ),
       React.createElement("button", { className: "ghost", onClick: refreshAll }, "更新")
