@@ -79,6 +79,7 @@ function App() {
   const [tapCount, setTapCount] = useState(0);
   const [lastRecordTaps, setLastRecordTaps] = useState(null);
   const [preview, setPreview] = useState("");
+  const [successText, setSuccessText] = useState("");
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -94,6 +95,12 @@ function App() {
     refreshAll();
     return () => stopCamera();
   }, []);
+
+  useEffect(() => {
+    if (!successText) return;
+    const timer = setTimeout(() => setSuccessText(""), 2200);
+    return () => clearTimeout(timer);
+  }, [successText]);
 
   async function refreshAll() {
     setRefreshing(true);
@@ -231,6 +238,7 @@ function App() {
       setLastRecordTaps(tapCount + 1);
       setTapCount(0);
       setMessage(captureMode === "label" ? "栄養成分表示の数値を採用しました" : "今日の合計に自動加算しました");
+      setSuccessText(captureMode === "label" ? "成分表示を記録しました" : "食事を記録しました");
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -323,6 +331,7 @@ function App() {
       setLastRecordTaps(1);
       setTapCount(0);
       setMessage("てきとう記録、ちゃんと残せました");
+      setSuccessText("文面記録を追加しました");
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -464,6 +473,68 @@ function App() {
     );
   }
 
+  function renderSetupGuide() {
+    const missing = [];
+    if (!settings.age) missing.push("年齢");
+    if (!settings.weight) missing.push("体重");
+    if (!settings.height) missing.push("身長");
+    if (!settings.sex) missing.push("性別");
+    if (!settings.purpose) missing.push("目的");
+    if (missing.length === 0 && energy.ready && (energy.target_pfc || emptyTargetPfc).ready) return null;
+
+    return React.createElement(
+      "section",
+      { className: "setupGuide" },
+      React.createElement(
+        "div",
+        null,
+        React.createElement("strong", null, "最初に設定すると、目標PFCとTDEEが出せます"),
+        React.createElement("span", null, missing.length ? `未入力: ${missing.join("・")}` : "目標PFCの計算に設定が必要です")
+      ),
+      React.createElement("button", { className: "ghost", onClick: () => setView("settings") }, "設定する")
+    );
+  }
+
+  function renderReviewText() {
+    if (!review) {
+      return React.createElement(
+        "p",
+        null,
+        "今日の記録を確定すると、AIが食事の振り返り、記録できたこと、継続、次の一手をまとめます"
+      );
+    }
+    const titles = ["今日の振り返り", "よかった点", "継続のこと", "次の一手"];
+    const text = review.text || "";
+    const sections = titles.map((title, index) => {
+      const start = text.indexOf(title);
+      if (start === -1) return null;
+      const nextStarts = titles
+        .slice(index + 1)
+        .map((nextTitle) => text.indexOf(nextTitle))
+        .filter((position) => position > start);
+      const end = nextStarts.length ? Math.min(...nextStarts) : text.length;
+      const body = text.slice(start + title.length, end).replace(/^[:：\s\n]+/, "").trim();
+      return { title, body };
+    }).filter(Boolean);
+
+    if (sections.length < 2) {
+      return React.createElement("p", null, text);
+    }
+
+    return React.createElement(
+      "div",
+      { className: "reviewSections" },
+      sections.map((section) =>
+        React.createElement(
+          "article",
+          { key: section.title },
+          React.createElement("h3", null, section.title),
+          React.createElement("p", null, section.body)
+        )
+      )
+    );
+  }
+
   function renderReviewBox() {
     return React.createElement(
       "section",
@@ -472,7 +543,7 @@ function App() {
         "div",
         null,
         React.createElement("h2", null, "AIレビュー"),
-        React.createElement("p", null, review ? review.text : "今日の記録を確定すると、AIが食事の振り返り、記録できたこと、継続、次の一手をまとめます")
+        renderReviewText()
       ),
       React.createElement(
         "button",
@@ -527,6 +598,7 @@ function App() {
       React.Fragment,
       null,
       renderEncouragement(),
+      renderSetupGuide(),
       React.createElement(
         "section",
         { className: "modeSwitch" },
@@ -730,6 +802,7 @@ function App() {
         React.createElement("h2", null, "カレンダー"),
         React.createElement("p", null, selectedDate)
       ),
+      renderSetupGuide(),
       renderTotals(),
       renderEnergyBalance(),
       renderAiNotice(),
@@ -748,6 +821,7 @@ function App() {
         React.createElement("p", null, selectedDate)
       ),
       renderEncouragement(),
+      renderSetupGuide(),
       renderTargetPfc(),
       renderReviewBox()
     );
@@ -770,6 +844,18 @@ function App() {
             React.createElement("span", null, "LINEログイン中")
           ),
           React.createElement("button", { className: "ghost", onClick: logout }, "ログアウト")
+        ),
+      !authUser &&
+        React.createElement(
+          "div",
+          { className: "accountBox noAvatar" },
+          React.createElement(
+            "div",
+            null,
+            React.createElement("strong", null, "LINE認証"),
+            React.createElement("span", null, "ログインすると端末を変えても記録を引き継げます")
+          ),
+          React.createElement("a", { className: "lineMiniButton", href: "/auth/line/login" }, "LINEでログイン")
         ),
       React.createElement(
         "label",
@@ -954,6 +1040,13 @@ function App() {
     view === "record" && renderRecord(),
     view === "review" && renderReview(),
     view === "settings" && renderSettings(),
+    successText &&
+      React.createElement(
+        "div",
+        { className: "successToast", role: "status", "aria-live": "polite" },
+        React.createElement("strong", null, successText),
+        React.createElement("span", null, "今日もちゃんと残せました")
+      ),
     renderLoadingOverlay()
   );
 }
