@@ -1392,11 +1392,9 @@ function App() {
         "section",
         { className: "recordSwitch" },
         React.createElement("button", { className: recordView === "daily" ? "active" : "", onClick: () => setRecordView("daily") }, "1日"),
-        React.createElement("button", { className: recordView === "week" ? "active" : "", onClick: () => setRecordView("week") }, "1週間"),
         React.createElement("button", { className: recordView === "calendar" ? "active" : "", onClick: () => setRecordView("calendar") }, "カレンダー")
       ),
       recordView === "daily" && renderDaily(),
-      recordView === "week" && renderWeek(),
       recordView === "calendar" && renderCalendarLog()
     );
   }
@@ -1437,7 +1435,7 @@ function App() {
               className: day.meal_count > 0 ? "weekDay recorded" : "weekDay",
               onClick: () => {
                 loadDay(day.date);
-                setRecordView("daily");
+                setRecordView("calendar");
                 setView("record");
               },
             },
@@ -1456,6 +1454,7 @@ function App() {
     return React.createElement(
       React.Fragment,
       null,
+      renderWeek(),
       React.createElement(
         "section",
         { className: "calendarPicker" },
