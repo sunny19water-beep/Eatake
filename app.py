@@ -141,7 +141,7 @@ def current_user(request: Request) -> dict[str, Any] | None:
             return None
         session = snap.to_dict() or {}
         if session.get("expires_at", "") <= now_key():
-            fs().collection("sessions").document(token).delete()
+            fs().collection("sessions").document(session_doc_id(token)).delete()
             return None
         user_snap = fs().collection("users").document(str(session.get("user_id"))).get()
         if not user_snap.exists:
@@ -346,6 +346,16 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS daily_diaries (
+                eaten_date TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                diary TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS ai_usage (
                 scope TEXT NOT NULL,
                 usage_date TEXT NOT NULL,
@@ -395,6 +405,7 @@ def purge_old_logs(conn: sqlite3.Connection) -> None:
     cutoff = oldest_kept_day()
     conn.execute("DELETE FROM meals WHERE eaten_date < ?", (cutoff,))
     conn.execute("DELETE FROM daily_reviews WHERE eaten_date < ?", (cutoff,))
+    conn.execute("DELETE FROM daily_diaries WHERE eaten_date < ?", (cutoff,))
     conn.commit()
 
 
@@ -736,6 +747,20 @@ def meals_for_day(conn: sqlite3.Connection, day: str) -> list[dict[str, Any]]:
     return [row_to_meal(row) for row in rows]
 
 
+def empty_diary() -> dict[str, str]:
+    return {"text": "", "created_at": "", "updated_at": ""}
+
+
+def diary_for_day(conn: sqlite3.Connection, day: str) -> dict[str, str]:
+    row = conn.execute(
+        "SELECT diary, created_at, updated_at FROM daily_diaries WHERE eaten_date = ?",
+        (day,),
+    ).fetchone()
+    if row is None:
+        return empty_diary()
+    return {"text": row["diary"], "created_at": row["created_at"], "updated_at": row["updated_at"]}
+
+
 def day_payload(day: str, user_id: str | None = None) -> dict[str, Any]:
     if STORAGE_BACKEND == "firestore":
         if not user_id:
@@ -754,6 +779,7 @@ def day_payload(day: str, user_id: str | None = None) -> dict[str, Any]:
             "totals": totals,
             "energy": energy_summary(totals, get_settings(conn)),
             "meals": meals_for_day(conn, day),
+            "diary": diary_for_day(conn, day),
             "review": None
             if review_row is None
             else {"text": review_row["review"], "created_at": review_row["created_at"]},
@@ -923,6 +949,10 @@ def reviews_collection(user_id: str):
     return user_doc(user_id).collection("daily_reviews")
 
 
+def diaries_collection(user_id: str):
+    return user_doc(user_id).collection("daily_diaries")
+
+
 def firestore_meal_to_dict(doc) -> dict[str, Any]:
     data = doc.to_dict() or {}
     return {
@@ -948,6 +978,8 @@ def firestore_purge_old_logs(user_id: str) -> None:
     for doc in meals_collection(user_id).where("eaten_date", "<", cutoff).stream():
         doc.reference.delete()
     for doc in reviews_collection(user_id).where("eaten_date", "<", cutoff).stream():
+        doc.reference.delete()
+    for doc in diaries_collection(user_id).where("eaten_date", "<", cutoff).stream():
         doc.reference.delete()
 
 
@@ -991,6 +1023,8 @@ def firestore_day_payload(user_id: str, day: str) -> dict[str, Any]:
     firestore_purge_old_logs(user_id)
     review_snap = reviews_collection(user_id).document(day).get()
     review_data = review_snap.to_dict() if review_snap.exists else None
+    diary_snap = diaries_collection(user_id).document(day).get()
+    diary_data = diary_snap.to_dict() if diary_snap.exists else None
     meals = firestore_meals_for_day(user_id, day)
     totals = sum_meals(meals)
     return {
@@ -998,6 +1032,13 @@ def firestore_day_payload(user_id: str, day: str) -> dict[str, Any]:
         "totals": totals,
         "energy": energy_summary(totals, get_settings(user_id=user_id)),
         "meals": meals,
+        "diary": empty_diary()
+        if not diary_data
+        else {
+            "text": diary_data.get("diary", ""),
+            "created_at": diary_data.get("created_at", ""),
+            "updated_at": diary_data.get("updated_at", ""),
+        },
         "review": None
         if not review_data
         else {"text": review_data.get("review", ""), "created_at": review_data.get("created_at", "")},
@@ -1256,6 +1297,36 @@ def save_review(day: str, review: str, user_id: str | None = None) -> dict[str, 
             (day, created_at, review),
         )
     return {"text": review, "created_at": created_at}
+
+
+def save_diary(day: str, diary: str, user_id: str | None = None) -> dict[str, str]:
+    now = datetime.now().isoformat(timespec="seconds")
+    if STORAGE_BACKEND == "firestore":
+        if not user_id:
+            raise HTTPException(status_code=401, detail="LINEログインが必要です。")
+        ref = diaries_collection(user_id).document(day)
+        snap = ref.get()
+        created_at = (snap.to_dict() or {}).get("created_at", now) if snap.exists else now
+        ref.set({"eaten_date": day, "created_at": created_at, "updated_at": now, "diary": diary})
+        return {"text": diary, "created_at": created_at, "updated_at": now}
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT created_at FROM daily_diaries WHERE eaten_date = ?",
+            (day,),
+        ).fetchone()
+        created_at = row["created_at"] if row else now
+        conn.execute(
+            """
+            INSERT INTO daily_diaries (eaten_date, created_at, updated_at, diary)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(eaten_date) DO UPDATE SET
+                updated_at = excluded.updated_at,
+                diary = excluded.diary
+            """,
+            (day, created_at, now, diary),
+        )
+    return {"text": diary, "created_at": created_at, "updated_at": now}
 
 
 def demo_review(day: str, totals: dict[str, float], settings: dict[str, str]) -> str:
@@ -1681,6 +1752,14 @@ def get_day(day: str, request: Request) -> dict[str, Any]:
     return day_payload(day, scoped_user_id(request))
 
 
+@app.put("/api/days/{day}/diary")
+def update_day_diary(day: str, request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    day = normalize_day(day)
+    text = normalize_setting_text(payload.get("text"))[:2000]
+    diary = save_diary(day, text, scoped_user_id(request))
+    return {"date": day, "diary": diary}
+
+
 @app.get("/api/settings")
 def read_settings(request: Request) -> dict[str, Any]:
     settings = get_settings(user_id=scoped_user_id(request))
@@ -1999,7 +2078,7 @@ def delete_all_meals(request: Request) -> dict[str, Any]:
     if STORAGE_BACKEND == "firestore":
         if not user_id:
             raise HTTPException(status_code=401, detail="LINEログインが必要です。")
-        for collection_getter in (meals_collection, reviews_collection):
+        for collection_getter in (meals_collection, reviews_collection, diaries_collection):
             for doc in collection_getter(user_id).stream():
                 doc.reference.delete()
         user_doc(user_id).collection("usage").document(today_key()).delete()
@@ -2016,6 +2095,7 @@ def delete_all_meals(request: Request) -> dict[str, Any]:
     with get_db() as conn:
         conn.execute("DELETE FROM meals")
         conn.execute("DELETE FROM daily_reviews")
+        conn.execute("DELETE FROM daily_diaries")
         conn.execute("DELETE FROM ai_usage")
         totals = empty_totals()
         return {

@@ -65,6 +65,9 @@ function App() {
   const [meals, setMeals] = useState([]);
   const [days, setDays] = useState([]);
   const [review, setReview] = useState(null);
+  const [diary, setDiary] = useState({ text: "", created_at: "", updated_at: "" });
+  const [diaryDraft, setDiaryDraft] = useState("");
+  const [diaryMessage, setDiaryMessage] = useState("");
   const [streak, setStreak] = useState(null);
   const [weeklySummary, setWeeklySummary] = useState(null);
   const [weekData, setWeekData] = useState(null);
@@ -77,7 +80,9 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
+  const [diaryBusy, setDiaryBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingTip, setLoadingTip] = useState("");
   const [message, setMessage] = useState("写真を撮るだけで記録します");
   const [settingsMessage, setSettingsMessage] = useState("");
   const [quickText, setQuickText] = useState("");
@@ -120,6 +125,13 @@ function App() {
     };
   }, [successText]);
 
+  useEffect(() => {
+    const active = refreshing || busy || reviewBusy || settingsBusy || diaryBusy;
+    if (!active) return;
+    const tips = buildTips();
+    setLoadingTip(tips[Math.floor(Math.random() * tips.length)] || "今日は1件だけ残せたら十分です。");
+  }, [refreshing, busy, reviewBusy, settingsBusy, diaryBusy]);
+
   async function refreshAll() {
     setRefreshing(true);
     try {
@@ -152,6 +164,9 @@ function App() {
       setEnergy(todayData.energy || emptyEnergy);
       setMeals(todayData.meals || []);
       setReview(todayData.review || null);
+      setDiary(todayData.diary || { text: "", created_at: "", updated_at: "" });
+      setDiaryDraft(todayData.diary?.text || "");
+      setDiaryMessage("");
       setStreak(todayData.streak || null);
       setWeeklySummary(todayData.weekly_summary || null);
       setAiUsage(todayData.ai_usage || aiUsage);
@@ -207,6 +222,9 @@ function App() {
       setEnergy(data.energy || emptyEnergy);
       setMeals(data.meals || []);
       setReview(data.review || null);
+      setDiary(data.diary || { text: "", created_at: "", updated_at: "" });
+      setDiaryDraft(data.diary?.text || "");
+      setDiaryMessage("");
     } finally {
       setRefreshing(false);
     }
@@ -354,6 +372,26 @@ function App() {
       setReview({ text: error.message, created_at: "" });
     } finally {
       setReviewBusy(false);
+    }
+  }
+
+  async function saveDiary() {
+    setDiaryBusy(true);
+    setDiaryMessage("");
+    try {
+      const response = await fetch(`/api/days/${selectedDate}/diary`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: diaryDraft }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "日記の保存に失敗しました");
+      setDiary(data.diary || { text: diaryDraft, created_at: "", updated_at: "" });
+      setDiaryMessage("日記を保存しました");
+    } catch (error) {
+      setDiaryMessage(error.message);
+    } finally {
+      setDiaryBusy(false);
     }
   }
 
@@ -836,9 +874,22 @@ function App() {
     );
   }
 
-  function renderTips() {
+  function buildTips() {
     const target = energy.target_pfc || emptyTargetPfc;
     const tips = [];
+    const dayDate = selectedDate ? new Date(`${selectedDate}T00:00:00`) : new Date();
+    const weekNames = ["日", "月", "火", "水", "木", "金", "土"];
+    const dayLabel = selectedDate ? selectedDate.slice(5).replace("-", "/") : "今日";
+    const weekday = weekNames[dayDate.getDay()];
+    const dayFacts = [
+      `${dayLabel}は${weekday}曜日です。週の流れを整えるなら、今日は「1食だけ記録」で十分です。`,
+      `${dayLabel}の記録を開いています。食事だけでなく、体調や空腹感も日記に一言残すと後から見返しやすいです。`,
+      `${dayLabel}は何の日でも、Eatakeでは「続けた日」です。完璧より、残したことを優先してOK。`,
+    ];
+    tips.push(dayFacts[Math.floor(Math.random() * dayFacts.length)]);
+    tips.push("精度は「栄養成分表示の撮影 > 文面記録 > 食事写真」の順で安定しやすいです。迷ったら成分表示が一番強いです。");
+    tips.push("食事写真は明るい場所で、皿全体が入るように真上か斜め45度から撮ると推定が安定しやすいです。");
+    tips.push("料理名が分かる時は文面記録もかなり便利です。「コンビニおにぎり1個、サラダチキン」みたいに書くと精度が上がります。");
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayKey = yesterday.toISOString().slice(0, 10);
@@ -886,11 +937,15 @@ function App() {
       tips.push("記録は毎食完璧じゃなくて大丈夫。写真1枚か文面1行だけでも、次の改善につながります。");
     }
 
+    return tips;
+  }
+
+  function renderTips() {
     return React.createElement(
       "section",
       { className: "tipsBox" },
       React.createElement("h2", null, "Tips"),
-      tips.slice(0, 1).map((tip, index) =>
+      buildTips().slice(0, 1).map((tip, index) =>
         React.createElement(
           "article",
           { key: tip },
@@ -902,15 +957,17 @@ function App() {
   }
 
   function renderLoadingOverlay() {
-    const active = refreshing || busy || reviewBusy || settingsBusy;
+    const active = refreshing || busy || reviewBusy || settingsBusy || diaryBusy;
     if (!active) return null;
     const text = busy
       ? "記録しています"
       : reviewBusy
         ? "レビューを作っています"
-        : settingsBusy
-          ? "設定を保存しています"
-          : "更新しています";
+        : diaryBusy
+          ? "日記を保存しています"
+          : settingsBusy
+            ? "設定を保存しています"
+            : "更新しています";
 
     return React.createElement(
       "div",
@@ -920,7 +977,8 @@ function App() {
         { className: "loadingPanel" },
         React.createElement("span", { className: "spinner" }),
         React.createElement("strong", null, text),
-        React.createElement("small", null, "少しだけ待ってください")
+        React.createElement("small", null, "少しだけ待ってください"),
+        React.createElement("p", { className: "loadingTip" }, loadingTip || "精度は栄養成分表示、文面記録、食事写真の順で安定しやすいです。")
       )
     );
   }
@@ -1029,6 +1087,33 @@ function App() {
     );
   }
 
+  function renderDiary() {
+    return React.createElement(
+      "section",
+      { className: "diaryBox" },
+      React.createElement(
+        "div",
+        { className: "diaryHead" },
+        React.createElement("h2", null, "日記"),
+        diary.updated_at && React.createElement("span", null, `保存済み ${diary.updated_at.slice(5, 16).replace("T", " ")}`)
+      ),
+      React.createElement("textarea", {
+        value: diaryDraft,
+        rows: 4,
+        maxLength: 2000,
+        placeholder: "例: 今日は昼にラーメン。夜は軽めにしたい。体調は普通。",
+        onChange: (event) => setDiaryDraft(event.target.value),
+      }),
+      React.createElement(
+        "div",
+        { className: "diaryActions" },
+        React.createElement("small", null, `${diaryDraft.length}/2000`),
+        React.createElement("button", { className: "primary", onClick: saveDiary, disabled: diaryBusy }, diaryBusy ? "保存中" : "日記を保存")
+      ),
+      diaryMessage && React.createElement("p", { className: "formMessage" }, diaryMessage)
+    );
+  }
+
   function renderDaily() {
     return React.createElement(
       React.Fragment,
@@ -1039,6 +1124,7 @@ function App() {
         React.createElement("h2", null, "1日の記録"),
         React.createElement("p", null, selectedDate)
       ),
+      renderDiary(),
       renderTotals(),
       renderEnergyBalance(),
       renderTargetPfc(),
@@ -1163,8 +1249,7 @@ function App() {
       renderEncouragement(),
       renderSetupGuide(),
       renderTargetPfc(),
-      renderReviewBox(),
-      renderTips()
+      renderReviewBox()
     );
   }
 

@@ -1,14 +1,37 @@
 .env
 .env.*
 !.env.example
+
+# Secrets and credentials
 *.pem
 *.key
+*.p12
+*.pfx
+*.crt
 *service-account*.json
+serviceAccountKey.json
+firebase-adminsdk*.json
 google-credentials.json
+
+# Python / local runtime
 .venv/
 __pycache__/
 *.pyc
-data/meals.json
-data/*.sqlite3
-server.*.log
+
+# Local data and generated files
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+logs/
+tmp/
+temp/
+
+# Frontend build artifacts
+node_modules/
+dist/
+build/
+
+# Local notes
 改善点.txt

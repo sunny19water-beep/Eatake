@@ -552,6 +552,41 @@ h2 {
   line-height: 1.6;
 }
 
+.diaryBox {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid rgba(25, 107, 79, 0.18);
+  border-radius: 8px;
+  background: #f7faf8;
+}
+
+.diaryHead,
+.diaryActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.diaryHead h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.diaryHead span,
+.diaryActions small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.diaryBox textarea {
+  min-height: 104px;
+  resize: vertical;
+}
+
 .reviewBox .primary {
   min-width: 168px;
   margin-top: 8px;
@@ -850,6 +885,18 @@ h2 {
 .loadingPanel small {
   color: var(--muted);
   font-weight: 700;
+}
+
+.loadingTip {
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f3fbf7;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.55;
+  text-align: left;
 }
 
 .spinner {
@@ -1171,6 +1218,16 @@ h2 {
   }
 
   .setupGuide .ghost {
+    width: 100%;
+  }
+
+  .diaryHead,
+  .diaryActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .diaryActions .primary {
     width: 100%;
   }
 
