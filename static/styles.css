@@ -889,6 +889,78 @@ h2 {
   font-size: 20px;
 }
 
+.pfcGapBox {
+  display: grid;
+  gap: 8px;
+  margin: -4px 0 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.pfcGapBox h2 {
+  font-size: 17px;
+}
+
+.pfcGapBox p {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.pfcBars {
+  display: grid;
+  gap: 8px;
+}
+
+.pfcBars article {
+  display: grid;
+  gap: 5px;
+}
+
+.pfcBarHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.pfcBarHead span {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pfcTrack {
+  overflow: hidden;
+  height: 9px;
+  border-radius: 999px;
+  background: #e7eee9;
+}
+
+.pfcTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+}
+
+.pfcBars small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.pfcBars .shortage {
+  color: var(--red);
+}
+
+.pfcBars .complete {
+  color: var(--green);
+}
+
 .history {
   display: grid;
   gap: 0;

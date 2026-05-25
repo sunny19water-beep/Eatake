@@ -833,6 +833,60 @@ function App() {
     );
   }
 
+  function renderPfcGapGraph() {
+    const target = energy.target_pfc || emptyTargetPfc;
+    const items = [
+      ["protein", "タンパク質", "P", "g"],
+      ["fat", "脂質", "F", "g"],
+      ["carbs", "炭水化物", "C", "g"],
+    ];
+    if (!target.ready) {
+      return React.createElement(
+        "section",
+        { className: "pfcGapBox" },
+        React.createElement("h2", null, "PFC推奨量との差"),
+        React.createElement("p", null, "設定を保存すると、推奨PFCと不足量を表示します。")
+      );
+    }
+    return React.createElement(
+      "section",
+      { className: "pfcGapBox" },
+      React.createElement("h2", null, "PFC推奨量との差"),
+      React.createElement("p", null, `${target.calories} kcal / ${target.ratio}`),
+      React.createElement(
+        "div",
+        { className: "pfcBars" },
+        items.map(([key, label, short, unit]) => {
+          const recommended = Number(target[key]) || 0;
+          const current = Number(totals[key]) || 0;
+          const gap = Math.max(0, Math.round((recommended - current) * 10) / 10);
+          const over = Math.max(0, Math.round((current - recommended) * 10) / 10);
+          const percent = recommended > 0 ? Math.min(100, Math.round((current / recommended) * 100)) : 0;
+          return React.createElement(
+            "article",
+            { key },
+            React.createElement(
+              "div",
+              { className: "pfcBarHead" },
+              React.createElement("strong", null, `${short} ${label}`),
+              React.createElement("span", null, `${current}/${recommended}${unit}`)
+            ),
+            React.createElement(
+              "div",
+              { className: "pfcTrack" },
+              React.createElement("span", { style: { width: `${percent}%` } })
+            ),
+            React.createElement(
+              "small",
+              { className: gap > 0 ? "shortage" : "complete" },
+              gap > 0 ? `あと ${gap}${unit}` : `達成${over > 0 ? ` +${over}${unit}` : ""}`
+            )
+          );
+        })
+      )
+    );
+  }
+
   function renderAiNotice() {
     return React.createElement(
       "section",
@@ -1270,8 +1324,6 @@ function App() {
       captureMode === "text" && renderQuickRecord(),
       captureMode === "manual" && renderManualNutrition(),
       renderTotals(),
-      renderEnergyBalance(),
-      renderTargetPfc(),
       renderAiNotice()
     );
   }
@@ -1315,8 +1367,7 @@ function App() {
         renderDiary()
       ),
       renderTotals(),
-      renderEnergyBalance(),
-      renderTargetPfc(),
+      renderPfcGapGraph(),
       renderAiNotice(),
       renderEncouragement(),
       renderMealList("この日の記録はまだありません")
@@ -1419,7 +1470,7 @@ function App() {
       ),
       renderSetupGuide(),
       renderTotals(),
-      renderEnergyBalance(),
+      renderPfcGapGraph(),
       renderAiNotice(),
       renderMealList("この日の記録はありません")
     );
@@ -1438,7 +1489,6 @@ function App() {
       ),
       renderEncouragement(),
       renderSetupGuide(),
-      renderTargetPfc(),
       renderReviewBox()
     );
   }

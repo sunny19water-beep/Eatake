@@ -1,4 +1,4 @@
-const CACHE_NAME = "eatake-v16";
+const CACHE_NAME = "eatake-v17";
 const APP_SHELL = [
   "/",
   "/static/styles.css",
