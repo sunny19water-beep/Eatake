@@ -663,7 +663,7 @@ function App() {
     if (!settings.height) missing.push("身長");
     if (!settings.sex) missing.push("性別");
     if (!settings.purpose) missing.push("目的");
-    if (missing.length === 0 && energy.ready && (energy.target_pfc || emptyTargetPfc).ready) return null;
+    if (missing.length === 0) return null;
 
     return React.createElement(
       "section",
@@ -890,7 +890,7 @@ function App() {
       "section",
       { className: "tipsBox" },
       React.createElement("h2", null, "Tips"),
-      tips.slice(0, 5).map((tip, index) =>
+      tips.slice(0, 1).map((tip, index) =>
         React.createElement(
           "article",
           { key: tip },
@@ -1162,9 +1162,9 @@ function App() {
       ),
       renderEncouragement(),
       renderSetupGuide(),
-      renderTips(),
       renderTargetPfc(),
-      renderReviewBox()
+      renderReviewBox(),
+      renderTips()
     );
   }
 
@@ -1319,14 +1319,14 @@ function App() {
         )
       ),
       renderProfileSummary(),
-      renderPrivacyPanel(),
-      renderFeedbackPanel(),
       React.createElement(
         "button",
         { className: "primary wideButton", onClick: saveSettings, disabled: settingsBusy },
         settingsBusy ? "保存中" : "保存"
       ),
-      settingsMessage && React.createElement("p", { className: "formMessage" }, settingsMessage)
+      settingsMessage && React.createElement("p", { className: "formMessage" }, settingsMessage),
+      renderPrivacyPanel(),
+      renderFeedbackPanel()
     );
   }
 
