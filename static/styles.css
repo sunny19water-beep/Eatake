@@ -429,6 +429,33 @@ h2 {
   margin-top: 6px;
 }
 
+.tipsBox {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.tipsBox article {
+  padding: 12px;
+  border: 1px solid rgba(25, 107, 79, 0.18);
+  border-radius: 8px;
+  background: #f3fbf7;
+}
+
+.tipsBox strong {
+  display: block;
+  color: var(--green);
+  font-size: 13px;
+}
+
+.tipsBox p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
 .reviewBox .primary {
   min-width: 168px;
   margin-top: 8px;
@@ -496,6 +523,63 @@ h2 {
 @keyframes toastPulse {
   50% {
     transform: translate(-50%, 0) scale(1.02);
+  }
+}
+
+.successBurst {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.successBurst span {
+  position: absolute;
+  left: 50%;
+  top: 54%;
+  width: 9px;
+  height: 18px;
+  border-radius: 3px;
+  background: var(--green);
+  opacity: 0;
+  animation: burst 860ms ease-out forwards;
+}
+
+.successBurst span:nth-child(3n) {
+  background: #f2c94c;
+}
+
+.successBurst span:nth-child(3n + 1) {
+  background: #ff7a59;
+}
+
+.successBurst span:nth-child(1) { --x: -118px; --y: -126px; transform: rotate(8deg); }
+.successBurst span:nth-child(2) { --x: -72px; --y: -154px; transform: rotate(46deg); }
+.successBurst span:nth-child(3) { --x: -18px; --y: -136px; transform: rotate(92deg); }
+.successBurst span:nth-child(4) { --x: 42px; --y: -152px; transform: rotate(118deg); }
+.successBurst span:nth-child(5) { --x: 102px; --y: -112px; transform: rotate(162deg); }
+.successBurst span:nth-child(6) { --x: 132px; --y: -40px; transform: rotate(204deg); }
+.successBurst span:nth-child(7) { --x: 94px; --y: 48px; transform: rotate(230deg); }
+.successBurst span:nth-child(8) { --x: 38px; --y: 82px; transform: rotate(270deg); }
+.successBurst span:nth-child(9) { --x: -28px; --y: 76px; transform: rotate(310deg); }
+.successBurst span:nth-child(10) { --x: -86px; --y: 36px; transform: rotate(338deg); }
+.successBurst span:nth-child(11) { --x: -124px; --y: -22px; transform: rotate(28deg); }
+.successBurst span:nth-child(12) { --x: 18px; --y: -202px; transform: rotate(72deg); }
+
+@keyframes burst {
+  0% {
+    opacity: 0;
+    translate: -50% -50%;
+    scale: 0.4;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    translate: calc(-50% + var(--x)) calc(-50% + var(--y));
+    scale: 1;
   }
 }
 

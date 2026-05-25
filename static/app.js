@@ -80,6 +80,7 @@ function App() {
   const [lastRecordTaps, setLastRecordTaps] = useState(null);
   const [preview, setPreview] = useState("");
   const [successText, setSuccessText] = useState("");
+  const [successBurst, setSuccessBurst] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -98,8 +99,13 @@ function App() {
 
   useEffect(() => {
     if (!successText) return;
-    const timer = setTimeout(() => setSuccessText(""), 2200);
-    return () => clearTimeout(timer);
+    setSuccessBurst(true);
+    const burstTimer = setTimeout(() => setSuccessBurst(false), 1100);
+    const timer = setTimeout(() => setSuccessText(""), 2600);
+    return () => {
+      clearTimeout(burstTimer);
+      clearTimeout(timer);
+    };
   }, [successText]);
 
   async function refreshAll() {
@@ -569,6 +575,42 @@ function App() {
     );
   }
 
+  function renderTips() {
+    const target = energy.target_pfc || emptyTargetPfc;
+    const tips = [];
+    if (!energy.ready) {
+      tips.push("設定を入れると、TDEEと目標PFCがあなた用になります。まずは年齢・身長・体重だけでもOK。");
+    } else if (energy.deficit > 0) {
+      tips.push(`今日はTDEEより約${energy.deficit}kcal下。減量目的なら、この差を急に大きくしすぎないのが続けやすいです。`);
+    } else if (energy.surplus > 0) {
+      tips.push(`今日はTDEEより約${energy.surplus}kcal上。増量なら良い材料、減量なら次の食事を軽めにするだけで十分です。`);
+    }
+    if (target.ready) {
+      const proteinGap = Math.round((target.protein - totals.protein) * 10) / 10;
+      if (proteinGap > 0) tips.push(`タンパク質はあと${proteinGap}gくらいが目安。卵、豆腐、鶏肉、ヨーグルトあたりが足しやすいです。`);
+      if (totals.fiber < 10) tips.push("食物繊維は少し足せると満足感が出やすいです。野菜、海藻、きのこを少し足すだけでもOK。");
+    }
+    if (streak?.streak >= 3) {
+      tips.push(`${streak.streak}日連続はかなり良い流れです。今日は完璧より、記録を切らさないことが勝ちです。`);
+    } else {
+      tips.push("記録は毎食完璧じゃなくて大丈夫。写真1枚か文面1行だけでも、次の改善につながります。");
+    }
+
+    return React.createElement(
+      "section",
+      { className: "tipsBox" },
+      React.createElement("h2", null, "Tips"),
+      tips.slice(0, 3).map((tip, index) =>
+        React.createElement(
+          "article",
+          { key: tip },
+          React.createElement("strong", null, `Tip ${index + 1}`),
+          React.createElement("p", null, tip)
+        )
+      )
+    );
+  }
+
   function renderLoadingOverlay() {
     const active = refreshing || busy || reviewBusy || settingsBusy;
     if (!active) return null;
@@ -822,6 +864,7 @@ function App() {
       ),
       renderEncouragement(),
       renderSetupGuide(),
+      renderTips(),
       renderTargetPfc(),
       renderReviewBox()
     );
@@ -1040,12 +1083,18 @@ function App() {
     view === "record" && renderRecord(),
     view === "review" && renderReview(),
     view === "settings" && renderSettings(),
+    successBurst &&
+      React.createElement(
+        "div",
+        { className: "successBurst", "aria-hidden": "true" },
+        Array.from({ length: 12 }).map((_, index) => React.createElement("span", { key: index }))
+      ),
     successText &&
       React.createElement(
         "div",
         { className: "successToast", role: "status", "aria-live": "polite" },
         React.createElement("strong", null, successText),
-        React.createElement("span", null, "今日もちゃんと残せました")
+        React.createElement("span", null, streak?.streak >= 2 ? `${streak.streak}日連続、いい流れです` : "今日もちゃんと残せました")
       ),
     renderLoadingOverlay()
   );
