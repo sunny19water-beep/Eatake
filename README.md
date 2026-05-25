@@ -4,6 +4,9 @@
 
 Eatake は、完璧な栄養管理よりも「記録を続けやすいこと」を重視したプロトタイプです。AI推定なので数値は目安ですが、毎日の食事を軽く振り返るきっかけを作ります。
 
+このwebアプリを作った理由は、既存の食事管理アプリは手間が多すぎて継続する気が起きないため、記録をほぼ全自動でやってくれるアプリを作りたいと思ったからです。このアプリのターゲット層は主にダイエットや筋トレを始めた初心者（ライト層）向けです。記録は写真を撮って保存するだけ、ただそれだけで記録が出来ます。
+しかしAI解析であったり文言解析であるので精度は少し悪いです。そのためPFCの数ミリが大事なプロには向かないという特徴があります。
+
 ## 主な機能
 
 - 食事写真からAIで栄養推定
@@ -18,33 +21,24 @@ Eatake は、完璧な栄養管理よりも「記録を続けやすいこと」�
 - 食事記録の編集・削除
 - 全データ削除
 - フィードバック送信
-- PWA対応
 
 ## 現在の公開状態
 
 現在はプロトタイプ版として、ログインなしで使える設定にしています。
 
-```text
-AUTH_REQUIRED=false
-```
-
-この状態では、Firestoreを使う場合も全ユーザーが共通の `prototype` データ領域を使います。公開テストには便利ですが、個人情報を含む写真やメモを入れすぎないようにしてください。
-
-本公開時は、認証を有効化してユーザーごとにデータを分ける想定です。
-
-```text
-AUTH_REQUIRED=true
-```
-
 ## 使い方
 
 1. `記録` 画面を開く
+![アプリ画面](./images/record.png)
 2. `すぐ撮る` で食事写真を撮る
 3. AI推定結果を確認する
+![アプリ画面](./images/AIanalyse.png)
 4. `これで記録` を押す
 5. `レビュー` 画面で今日の振り返りを見る
+![アプリ画面](./images/huri.png)
 
 写真がない場合は、`文面記録` から「おにぎり1個」「ラーメン食べた」のように入力できます。日付も選べるので、昨日の食事も後から記録できます。
+![アプリ画面](./images/bunnmenn.png)
 
 ## AIレビュー
 
@@ -84,37 +78,6 @@ Eatakeでは、以下の情報を扱います。
 
 設定画面から、すべての記録を削除できます。
 
-## Render環境変数
-
-Renderで動かす場合は、Environment Variables に以下を設定します。
-
-```text
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-2.5-flash
-AI_DAILY_LIMIT=10
-
-STORAGE_BACKEND=firestore
-AUTH_REQUIRED=false
-PROTOTYPE_USER_ID=prototype
-
-APP_BASE_URL=https://your-render-url.onrender.com
-SESSION_SECRET=long_random_secret
-
-LINE_REQUEST_EMAIL=false
-LINE_CHANNEL_ID=your_line_channel_id
-LINE_CHANNEL_SECRET=your_line_channel_secret
-
-GOOGLE_APPLICATION_CREDENTIALS_JSON=your_service_account_json
-```
-
-プロトタイプとして出すだけなら、`AUTH_REQUIRED=false` のままで使えます。
-
-LINE認証を有効化する場合は、`AUTH_REQUIRED=true` に変更し、LINE Developers側のCallback URLを以下に設定します。
-
-```text
-https://your-render-url.onrender.com/auth/line/callback
-```
-
 ## 技術構成
 
 - Backend: FastAPI
@@ -122,7 +85,6 @@ https://your-render-url.onrender.com/auth/line/callback
 - AI: Gemini API
 - Database: SQLite / Firestore
 - Deploy: Render
-- App形式: PWA
 
 ## 今後の予定
 
