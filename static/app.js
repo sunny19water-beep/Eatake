@@ -1,6 +1,16 @@
 const { useEffect, useMemo, useRef, useState } = React;
 
 const emptyTotals = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, sugar: 0, salt: 0 };
+const emptyManualMeal = {
+  dish_name: "",
+  calories: "",
+  protein: "",
+  fat: "",
+  carbs: "",
+  sugar: "",
+  fiber: "",
+  salt: "",
+};
 const defaultSettings = {
   age: "",
   weight: "",
@@ -96,6 +106,7 @@ function App() {
   const [message, setMessage] = useState("写真を撮るだけで記録します");
   const [settingsMessage, setSettingsMessage] = useState("");
   const [quickText, setQuickText] = useState("");
+  const [manualMeal, setManualMeal] = useState(emptyManualMeal);
   const [tapCount, setTapCount] = useState(0);
   const [lastRecordTaps, setLastRecordTaps] = useState(null);
   const [preview, setPreview] = useState("");
@@ -476,6 +487,51 @@ function App() {
     }
   }
 
+  async function saveManualMeal() {
+    const hasRequiredValue = manualMeal.dish_name.trim() && String(manualMeal.calories).trim();
+    if (!hasRequiredValue) return;
+    const loadingStartedAt = Date.now();
+    setBusy(true);
+    setTapCount((count) => count + 1);
+    try {
+      const payload = {
+        ...manualMeal,
+        date: quickDate || selectedDate,
+        confidence: 1,
+        notes: "成分表示を手入力",
+      };
+      const response = await fetch("/api/meals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "手入力の保存に失敗しました");
+      setManualMeal(emptyManualMeal);
+      setSelectedDate(data.meal.date);
+      setQuickDate(data.meal.date);
+      setTotals(data.totals);
+      setEnergy(data.energy || emptyEnergy);
+      setMeals((current) => [data.meal, ...current.filter((meal) => meal.id !== data.meal.id)]);
+      setDays(data.days || days);
+      setReview(null);
+      setAiUsage(data.ai_usage || aiUsage);
+      setLastRecordTaps(1);
+      setTapCount(0);
+      setMessage("成分表示の数値をそのまま記録しました");
+      setSuccessText("成分表示を手入力で記録しました");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      await keepLoadingVisible(loadingStartedAt);
+      setBusy(false);
+    }
+  }
+
+  function setManualField(key, value) {
+    setManualMeal((current) => ({ ...current, [key]: value }));
+  }
+
   function setSetting(key, value) {
     setSettings((current) => ({ ...current, [key]: value }));
   }
@@ -585,6 +641,63 @@ function App() {
         "button",
         { className: "primary wideButton", onClick: saveQuickText, disabled: busy || !quickText.trim() },
         busy ? "記録中" : "これで記録"
+      )
+    );
+  }
+
+  function renderManualNutrition() {
+    const fields = [
+      ["calories", "カロリー", "kcal", "number"],
+      ["protein", "タンパク質", "g", "number"],
+      ["fat", "脂質", "g", "number"],
+      ["carbs", "炭水化物", "g", "number"],
+      ["sugar", "糖質", "g", "number"],
+      ["fiber", "食物繊維", "g", "number"],
+      ["salt", "塩分", "g", "number"],
+    ];
+    return React.createElement(
+      "section",
+      { className: "quickRecord manualNutrition" },
+      React.createElement("label", null, "成分表示を手入力"),
+      React.createElement("input", {
+        type: "date",
+        value: quickDate || selectedDate,
+        onChange: (event) => setQuickDate(event.target.value),
+      }),
+      React.createElement("input", {
+        value: manualMeal.dish_name,
+        placeholder: "商品名・食事名",
+        onChange: (event) => setManualField("dish_name", event.target.value),
+      }),
+      React.createElement(
+        "div",
+        { className: "manualGrid" },
+        fields.map(([key, label, unit, type]) =>
+          React.createElement(
+            "label",
+            { key },
+            React.createElement("span", null, `${label} (${unit})`),
+            React.createElement("input", {
+              type,
+              min: "0",
+              step: key === "calories" ? "1" : "0.1",
+              inputMode: "decimal",
+              value: manualMeal[key],
+              placeholder: "0",
+              onChange: (event) => setManualField(key, event.target.value),
+            })
+          )
+        )
+      ),
+      React.createElement("small", null, "糖質が空の場合は、炭水化物から食物繊維を引いた値で自動補完されます。"),
+      React.createElement(
+        "button",
+        {
+          className: "primary wideButton",
+          onClick: saveManualMeal,
+          disabled: busy || !manualMeal.dish_name.trim() || !String(manualMeal.calories).trim(),
+        },
+        busy ? "記録中" : "この成分で記録"
       )
     );
   }
@@ -1058,6 +1171,19 @@ function App() {
         React.createElement(
           "button",
           {
+            className: captureMode === "manual" ? "active" : "",
+            onClick: () => {
+              setCaptureMode("manual");
+              setMessage("成分表示の数値を写真なしで記録できます");
+              stopCamera();
+            },
+            disabled: busy,
+          },
+          "成分手入力"
+        ),
+        React.createElement(
+          "button",
+          {
             className: captureMode === "text" ? "active" : "",
             onClick: () => {
               setCaptureMode("text");
@@ -1071,6 +1197,7 @@ function App() {
       ),
       renderPendingEstimate(),
       captureMode !== "text" &&
+        captureMode !== "manual" &&
         React.createElement(
           "section",
           { className: "camera" },
@@ -1112,6 +1239,7 @@ function App() {
           })
         ),
       captureMode === "text" && renderQuickRecord(),
+      captureMode === "manual" && renderManualNutrition(),
       renderTotals(),
       renderEnergyBalance(),
       renderTargetPfc(),

@@ -405,6 +405,30 @@ h2 {
   font: inherit;
 }
 
+.manualNutrition small {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.manualGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.manualGrid label {
+  display: grid;
+  gap: 5px;
+}
+
+.manualGrid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .prototypeBanner {
   display: grid;
   gap: 4px;
@@ -1288,6 +1312,10 @@ h2 {
     min-height: 46px;
     padding: 0 5px;
     font-size: 12px;
+  }
+
+  .manualGrid {
+    grid-template-columns: 1fr;
   }
 
   .reviewBox {
