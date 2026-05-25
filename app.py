@@ -895,18 +895,19 @@ def weekly_summary(user_id: str | None = None) -> dict[str, Any]:
     }
 
 
-def current_week_payload(user_id: str | None = None) -> dict[str, Any]:
+def current_week_payload(user_id: str | None = None, days_count: int = 7) -> dict[str, Any]:
+    days_count = max(1, min(31, int(days_count or 7)))
     if STORAGE_BACKEND == "firestore":
         if not user_id:
             raise HTTPException(status_code=401, detail="LINEログインが必要です。")
-        return firestore_current_week_payload(user_id)
+        return firestore_current_week_payload(user_id, days_count)
 
     today = date.today()
-    start = today - timedelta(days=6)
+    start = today - timedelta(days=days_count - 1)
     days = []
     with get_db() as conn:
         purge_old_logs(conn)
-        for offset in range(7):
+        for offset in range(days_count):
             current = start + timedelta(days=offset)
             key = current.isoformat()
             meals = meals_for_day(conn, key)
@@ -918,8 +919,8 @@ def current_week_payload(user_id: str | None = None) -> dict[str, Any]:
                 }
             )
         totals = totals_between(conn, start.isoformat(), today.isoformat())
-    averages = {key: round(value / 7, 1) for key, value in totals.items()}
-    averages["calories"] = round(totals["calories"] / 7)
+    averages = {key: round(value / days_count, 1) for key, value in totals.items()}
+    averages["calories"] = round(totals["calories"] / days_count)
     recorded_days = sum(1 for item in days if item["meal_count"] > 0)
     if recorded_days >= 5:
         message = "この1週間、かなり戻ってこられてる。続ける力が育ってます。"
@@ -930,6 +931,7 @@ def current_week_payload(user_id: str | None = None) -> dict[str, Any]:
     return {
         "start": start.isoformat(),
         "end": today.isoformat(),
+        "days_count": days_count,
         "totals": totals,
         "averages": averages,
         "days": days,
@@ -1108,15 +1110,16 @@ def firestore_weekly_summary(user_id: str) -> dict[str, Any]:
     }
 
 
-def firestore_current_week_payload(user_id: str) -> dict[str, Any]:
+def firestore_current_week_payload(user_id: str, days_count: int = 7) -> dict[str, Any]:
+    days_count = max(1, min(31, int(days_count or 7)))
     today = date.today()
-    start = today - timedelta(days=6)
+    start = today - timedelta(days=days_count - 1)
     all_meals = firestore_meals_between(user_id, start.isoformat(), today.isoformat())
     by_day: dict[str, list[dict[str, Any]]] = {}
     for meal in all_meals:
         by_day.setdefault(meal["date"], []).append(meal)
     days = []
-    for offset in range(7):
+    for offset in range(days_count):
         current = start + timedelta(days=offset)
         key = current.isoformat()
         meals = by_day.get(key, [])
@@ -1129,11 +1132,12 @@ def firestore_current_week_payload(user_id: str) -> dict[str, Any]:
     else:
         message = "今週はここからでOK。まず1回だけ記録してみよう。"
     totals = sum_meals(all_meals)
-    averages = {key: round(value / 7, 1) for key, value in totals.items()}
-    averages["calories"] = round(totals["calories"] / 7)
+    averages = {key: round(value / days_count, 1) for key, value in totals.items()}
+    averages["calories"] = round(totals["calories"] / days_count)
     return {
         "start": start.isoformat(),
         "end": today.isoformat(),
+        "days_count": days_count,
         "totals": totals,
         "averages": averages,
         "days": days,
@@ -1739,8 +1743,8 @@ def get_days(request: Request) -> dict[str, Any]:
 
 
 @app.get("/api/week")
-def get_week(request: Request) -> dict[str, Any]:
-    return current_week_payload(scoped_user_id(request))
+def get_week(request: Request, days: int = 7) -> dict[str, Any]:
+    return current_week_payload(scoped_user_id(request), days)
 
 
 @app.get("/api/days/{day}")

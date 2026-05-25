@@ -119,6 +119,7 @@ function App() {
   const [streak, setStreak] = useState(null);
   const [weeklySummary, setWeeklySummary] = useState(null);
   const [weekData, setWeekData] = useState(null);
+  const [averageDays, setAverageDays] = useState(7);
   const [settings, setSettings] = useState(defaultSettings);
   const [profile, setProfile] = useState(emptyProfile);
   const [purposes, setPurposes] = useState(["ダイエット", "増量", "健康維持", "減量"]);
@@ -287,6 +288,20 @@ function App() {
     const response = await fetch("/api/days");
     const data = await response.json();
     setDays(data.days || []);
+  }
+
+  async function loadAverage(daysCount) {
+    setAverageDays(daysCount);
+    setRefreshing(true);
+    const loadingStartedAt = Date.now();
+    try {
+      const response = await fetch(`/api/week?days=${daysCount}`);
+      const data = await response.json();
+      setWeekData(data);
+    } finally {
+      await keepLoadingVisible(loadingStartedAt);
+      setRefreshing(false);
+    }
   }
 
   async function startCamera() {
@@ -1370,17 +1385,17 @@ function App() {
         "section",
         { className: "sectionHead dailyHead" },
         React.createElement("h2", null, "1日の記録"),
-        React.createElement("p", null, selectedDate)
+      React.createElement("p", null, selectedDate)
       ),
-      renderTotals(),
       renderDailySubhead("グラフ", "推奨PFCとの差"),
       renderPfcGapGraph(),
+      renderDailySubhead("摂取と記録", "この日に食べたもの"),
+      renderTotals(),
       renderAiNotice(),
       renderEncouragement(),
+      renderMealList("この日の記録はまだありません"),
       renderDailySubhead("日記", "体調や気づきを一言"),
-      renderDiary(),
-      renderDailySubhead("記録", "この日に食べたもの"),
-      renderMealList("この日の記録はまだありません")
+      renderDiary()
     );
   }
 
@@ -1399,24 +1414,46 @@ function App() {
     );
   }
 
-  function renderWeek() {
+  function renderAveragePanel() {
     const data = weekData || { totals: emptyTotals, days: [], message: "今週はここからでOK。" };
+    const rangeOptions = [
+      [3, "平均3日"],
+      [7, "1週間"],
+      [14, "2週間"],
+      [30, "1か月"],
+    ];
     return React.createElement(
-      React.Fragment,
-      null,
+      "section",
+      { className: "averagePanel" },
       React.createElement(
-        "section",
-        { className: "sectionHead" },
-        React.createElement("h2", null, "1週間"),
+        "div",
+        { className: "averageTabs" },
+        rangeOptions.map(([daysCount, label]) =>
+          React.createElement(
+            "button",
+            {
+              key: daysCount,
+              className: averageDays === daysCount ? "active" : "",
+              onClick: () => loadAverage(daysCount),
+              disabled: refreshing,
+            },
+            label
+          )
+        )
+      ),
+      React.createElement(
+        "div",
+        { className: "averageHead" },
+        React.createElement("h2", null, "平均"),
         React.createElement("p", null, data.start && data.end ? `${data.start} - ${data.end}` : "")
       ),
       React.createElement(
-        "section",
+        "div",
         { className: "encouragement" },
         React.createElement("strong", null, data.message)
       ),
       React.createElement(
-        "section",
+        "div",
         { className: "totals" },
         React.createElement(Stat, { label: "平均カロリー", value: (data.averages || data.totals).calories, unit: "kcal/日", tone: "wide" }),
         React.createElement(Stat, { label: "平均タンパク質", value: (data.averages || data.totals).protein, unit: "g/日" }),
@@ -1425,7 +1462,7 @@ function App() {
         React.createElement(Stat, { label: "平均食物繊維", value: (data.averages || data.totals).fiber, unit: "g/日" })
       ),
       React.createElement(
-        "section",
+        "div",
         { className: "weekList" },
         data.days.map((day) =>
           React.createElement(
@@ -1454,7 +1491,12 @@ function App() {
     return React.createElement(
       React.Fragment,
       null,
-      renderWeek(),
+      React.createElement(
+        "section",
+        { className: "sectionHead" },
+        React.createElement("h2", null, "カレンダー"),
+        React.createElement("p", null, selectedDate)
+      ),
       React.createElement(
         "section",
         { className: "calendarPicker" },
@@ -1471,12 +1513,7 @@ function App() {
           })
         )
       ),
-      React.createElement(
-        "section",
-        { className: "sectionHead" },
-        React.createElement("h2", null, "カレンダー"),
-        React.createElement("p", null, selectedDate)
-      ),
+      renderAveragePanel(),
       renderTotals(),
       renderPfcGapGraph(),
       renderAiNotice(),

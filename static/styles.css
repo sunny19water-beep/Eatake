@@ -162,9 +162,9 @@ h2 {
 
 .totals {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
-  margin-bottom: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  margin-bottom: 10px;
 }
 
 .compactButton {
@@ -175,34 +175,40 @@ h2 {
 }
 
 .stat {
-  min-height: 68px;
-  padding: 10px;
+  min-height: 54px;
+  padding: 7px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
 }
 
 .stat.wide {
-  grid-column: 1 / -1;
+  grid-column: auto;
 }
 
 .stat span,
 .stat small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 10px;
   line-height: 1.2;
+}
+
+.stat span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stat strong {
   display: block;
-  margin: 5px 0 1px;
-  font-size: 24px;
+  margin: 3px 0 1px;
+  font-size: 18px;
   line-height: 1;
 }
 
 .stat.wide strong {
-  font-size: 36px;
+  font-size: 22px;
 }
 
 .energyBox {
@@ -1117,6 +1123,52 @@ h2 {
   background: #f3fbf7;
 }
 
+.averagePanel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.averageTabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.averageTabs button {
+  min-height: 40px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.averageTabs button.active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: white;
+}
+
+.averageHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.averageHead h2 {
+  font-size: 18px;
+}
+
+.averageHead p {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .loadingOverlay {
   position: fixed;
   inset: 0;
@@ -1416,21 +1468,21 @@ h2 {
   }
 
   .stat {
-    min-height: 62px;
-    padding: 8px;
+    min-height: 52px;
+    padding: 6px;
   }
 
   .stat span,
   .stat small {
-    font-size: 11px;
+    font-size: 9px;
   }
 
   .stat strong {
-    font-size: 21px;
+    font-size: 17px;
   }
 
   .stat.wide strong {
-    font-size: 30px;
+    font-size: 19px;
   }
 
   .tabs {
