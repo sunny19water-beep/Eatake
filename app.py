@@ -2,7 +2,9 @@ import json
 import os
 import secrets
 import sqlite3
+import base64
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -16,6 +18,7 @@ from google.cloud import firestore
 from google import genai
 from google.genai import types
 from google.oauth2 import service_account
+from PIL import Image
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -46,6 +49,7 @@ DEFAULT_SETTINGS = {
     "weight": "",
     "height": "",
     "sex": "",
+    "basal_metabolism": "",
     "exercise_per_week": "",
     "target_weight": "",
     "target_weeks": "",
@@ -270,6 +274,7 @@ def init_db() -> None:
                 sugar REAL NOT NULL DEFAULT 0,
                 salt REAL NOT NULL DEFAULT 0,
                 confidence REAL NOT NULL DEFAULT 0,
+                image_data TEXT NOT NULL DEFAULT '',
                 notes TEXT NOT NULL DEFAULT ''
             )
             """
@@ -332,6 +337,8 @@ def ensure_meal_columns(conn: sqlite3.Connection) -> None:
     for column in ("fiber", "sugar"):
         if column not in columns:
             conn.execute(f"ALTER TABLE meals ADD COLUMN {column} REAL NOT NULL DEFAULT 0")
+    if "image_data" not in columns:
+        conn.execute("ALTER TABLE meals ADD COLUMN image_data TEXT NOT NULL DEFAULT ''")
 
 
 init_db()
@@ -369,6 +376,7 @@ def save_settings(payload: dict[str, Any], user_id: str | None = None) -> dict[s
         "weight": normalize_setting_text(payload.get("weight")),
         "height": normalize_setting_text(payload.get("height")),
         "sex": normalize_setting_text(payload.get("sex")),
+        "basal_metabolism": normalize_setting_text(payload.get("basal_metabolism")),
         "exercise_per_week": normalize_setting_text(payload.get("exercise_per_week")),
         "target_weight": normalize_setting_text(payload.get("target_weight")),
         "target_weeks": normalize_setting_text(payload.get("target_weeks")),
@@ -380,6 +388,8 @@ def save_settings(payload: dict[str, Any], user_id: str | None = None) -> dict[s
     for key in ("age", "weight", "height"):
         if settings[key] and clamp_number(settings[key], maximum=400) <= 0:
             raise HTTPException(status_code=400, detail=f"{key} は正の数値で入力してください。")
+    if settings["basal_metabolism"] and clamp_number(settings["basal_metabolism"], maximum=5000) <= 0:
+        raise HTTPException(status_code=400, detail="基礎代謝は正の数値で入力してください。")
     if settings["exercise_per_week"] and clamp_number(settings["exercise_per_week"], maximum=14) < 0:
         raise HTTPException(status_code=400, detail="運動回数は0以上の数値で入力してください。")
     if settings["target_weight"] and clamp_number(settings["target_weight"], maximum=400) <= 0:
@@ -420,6 +430,7 @@ def row_to_meal(row: sqlite3.Row) -> dict[str, Any]:
         "sugar": round(float(row["sugar"]), 1),
         "salt": round(float(row["salt"]), 1),
         "confidence": round(float(row["confidence"]), 2),
+        "image_data": row["image_data"],
         "notes": row["notes"],
     }
 
@@ -453,19 +464,29 @@ def calculate_tdee(settings: dict[str, str]) -> dict[str, Any]:
     age = clamp_number(settings.get("age"), maximum=120)
     weight = clamp_number(settings.get("weight"), maximum=400)
     height = clamp_number(settings.get("height"), maximum=260)
+    basal_metabolism = clamp_number(settings.get("basal_metabolism"), maximum=5000)
     sex = settings.get("sex", "")
+    factor = activity_factor(settings.get("exercise_per_week"))
+    if basal_metabolism > 0:
+        return {
+            "ready": True,
+            "bmr": round(basal_metabolism),
+            "tdee": round(basal_metabolism * factor),
+            "activity_factor": factor,
+            "message": "入力された基礎代謝から推定TDEEを計算しました。",
+        }
+
     if age <= 0 or weight <= 0 or height <= 0 or sex not in {"男性", "女性"}:
         return {
             "ready": False,
             "bmr": 0,
             "tdee": 0,
-            "activity_factor": activity_factor(settings.get("exercise_per_week")),
-            "message": "年齢・体重・身長・性別を設定するとTDEEを表示します。",
+            "activity_factor": factor,
+            "message": "基礎代謝、または年齢・体重・身長・性別を設定するとTDEEを表示します。",
         }
 
     sex_offset = 5 if sex == "男性" else -161
     bmr = (10 * weight) + (6.25 * height) - (5 * age) + sex_offset
-    factor = activity_factor(settings.get("exercise_per_week"))
     tdee = bmr * factor
     return {
         "ready": True,
@@ -495,6 +516,7 @@ def profile_metrics(settings: dict[str, str]) -> dict[str, Any]:
     height = clamp_number(settings.get("height"), maximum=260)
     target_weight = clamp_number(settings.get("target_weight"), maximum=400)
     target_weeks = clamp_number(settings.get("target_weeks"), maximum=260)
+    tdee = calculate_tdee(settings)
 
     bmi = 0.0
     category = "未設定"
@@ -515,6 +537,8 @@ def profile_metrics(settings: dict[str, str]) -> dict[str, Any]:
         "target_weeks": round(target_weeks) if target_weeks else 0,
         "kg_to_lose": round(kg_to_lose, 1),
         "target_daily_deficit": target_daily_deficit,
+        "bmr": tdee["bmr"],
+        "tdee": tdee["tdee"],
         "message": "BMIと目標赤字を計算しました。" if bmi else "体重と身長を設定するとBMIを表示します。",
     }
 
@@ -805,6 +829,7 @@ def firestore_meal_to_dict(doc) -> dict[str, Any]:
         "sugar": round(float(data.get("sugar", 0)), 1),
         "salt": round(float(data.get("salt", 0)), 1),
         "confidence": round(float(data.get("confidence", 0)), 2),
+        "image_data": data.get("image_data", ""),
         "notes": data.get("notes", ""),
     }
 
@@ -1488,7 +1513,20 @@ async def read_image(file: UploadFile) -> bytes:
     return image_bytes
 
 
-def save_meal_estimate(estimate: dict[str, Any], user_id: str | None = None) -> dict[str, Any]:
+def make_image_data_url(image_bytes: bytes) -> str:
+    try:
+        image = Image.open(BytesIO(image_bytes))
+        image = image.convert("RGB")
+        image.thumbnail((360, 360))
+        output = BytesIO()
+        image.save(output, format="JPEG", quality=68, optimize=True)
+    except Exception:
+        return ""
+    encoded = base64.b64encode(output.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+def save_meal_estimate(estimate: dict[str, Any], user_id: str | None = None, image_data: str = "") -> dict[str, Any]:
     created_at = datetime.now().isoformat(timespec="seconds")
     day = today_key()
 
@@ -1509,6 +1547,7 @@ def save_meal_estimate(estimate: dict[str, Any], user_id: str | None = None) -> 
                 "sugar": estimate["sugar"],
                 "salt": estimate["salt"],
                 "confidence": estimate["confidence"],
+                "image_data": image_data,
                 "notes": estimate["notes"],
             }
         )
@@ -1526,9 +1565,9 @@ def save_meal_estimate(estimate: dict[str, Any], user_id: str | None = None) -> 
             """
             INSERT INTO meals (
                 eaten_date, created_at, dish_name, calories, protein, fat,
-                carbs, fiber, sugar, salt, confidence, notes
+                carbs, fiber, sugar, salt, confidence, image_data, notes
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 day,
@@ -1542,6 +1581,7 @@ def save_meal_estimate(estimate: dict[str, Any], user_id: str | None = None) -> 
                 estimate["sugar"],
                 estimate["salt"],
                 estimate["confidence"],
+                image_data,
                 estimate["notes"],
             ),
         )
@@ -1564,7 +1604,7 @@ async def analyze_image(request: Request, file: UploadFile = File(...)) -> dict[
     quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
     estimate = await estimate_nutrition(file, image_bytes)
     reject_if_not_food(estimate)
-    result = save_meal_estimate(estimate, user_id)
+    result = save_meal_estimate(estimate, user_id, make_image_data_url(image_bytes))
     result["ai_usage"] = quota
     return result
 
@@ -1576,7 +1616,7 @@ async def analyze_label(request: Request, file: UploadFile = File(...)) -> dict[
     quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
     estimate = await estimate_nutrition_label(file, image_bytes)
     reject_if_not_label(estimate)
-    result = save_meal_estimate(estimate, user_id)
+    result = save_meal_estimate(estimate, user_id, make_image_data_url(image_bytes))
     result["ai_usage"] = quota
     return result
 

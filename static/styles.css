@@ -89,7 +89,7 @@ h2 {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -287,11 +287,120 @@ h2 {
   border-color: var(--ink);
 }
 
+.recordSwitch {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.recordSwitch button {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.recordSwitch button.active {
+  background: var(--ink);
+  color: white;
+  border-color: var(--ink);
+}
+
 .encouragement,
 .quickRecord,
 .weekList {
   display: grid;
   gap: 8px;
+}
+
+.aiNotice {
+  margin: -6px 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffaf0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.history {
+  display: grid;
+  gap: 0;
+}
+
+.meal {
+  display: grid;
+  grid-template-columns: 86px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.meal.noPhoto {
+  grid-template-columns: 1fr auto;
+}
+
+.mealPhoto {
+  width: 86px;
+  height: 86px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--line);
+}
+
+.meal > div {
+  min-width: 0;
+}
+
+.meal strong,
+.meal span,
+.meal em {
+  display: block;
+}
+
+.meal span,
+.meal em {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.mealDivider {
+  height: 1px;
+  background: var(--line);
+}
+
+.profileSummary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.profileSummary > div {
+  min-height: 86px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7faf8;
+}
+
+.profileSummary span,
+.profileSummary small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.profileSummary strong {
+  display: block;
+  margin: 6px 0 2px;
+  font-size: 22px;
+  line-height: 1;
 }
 
 .weekDay {
@@ -446,6 +555,23 @@ h2 {
   }
 
   .energyBox {
+    grid-template-columns: 1fr;
+  }
+
+  .meal {
+    grid-template-columns: 72px 1fr;
+  }
+
+  .mealPhoto {
+    width: 72px;
+    height: 72px;
+  }
+
+  .meal .delete {
+    grid-column: 1 / -1;
+  }
+
+  .profileSummary {
     grid-template-columns: 1fr;
   }
 

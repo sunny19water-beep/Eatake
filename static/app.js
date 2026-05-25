@@ -6,12 +6,13 @@ const defaultSettings = {
   weight: "",
   height: "",
   sex: "",
+  basal_metabolism: "",
   exercise_per_week: "",
   target_weight: "",
   target_weeks: "",
   purpose: "健康維持",
 };
-const emptyProfile = { ready: false, bmi: 0, category: "未設定", target_daily_deficit: 0, kg_to_lose: 0, message: "" };
+const emptyProfile = { ready: false, bmi: 0, category: "未設定", target_daily_deficit: 0, kg_to_lose: 0, bmr: 0, tdee: 0, message: "" };
 const emptyEnergy = { ready: false, bmr: 0, tdee: 0, calories: 0, balance: 0, deficit: 0, surplus: 0, target_daily_deficit: 0, profile: emptyProfile, message: "" };
 
 function Stat({ label, value, unit, tone }) {
@@ -27,7 +28,8 @@ function Stat({ label, value, unit, tone }) {
 function MealItem({ meal, onDelete }) {
   return React.createElement(
     "article",
-    { className: "meal" },
+    { className: meal.image_data ? "meal hasPhoto" : "meal noPhoto" },
+    meal.image_data && React.createElement("img", { className: "mealPhoto", src: meal.image_data, alt: meal.dish_name }),
     React.createElement(
       "div",
       null,
@@ -45,6 +47,7 @@ function MealItem({ meal, onDelete }) {
 
 function App() {
   const [view, setView] = useState("camera");
+  const [recordView, setRecordView] = useState("daily");
   const [authReady, setAuthReady] = useState(false);
   const [authRequired, setAuthRequired] = useState(false);
   const [authUser, setAuthUser] = useState(null);
@@ -411,6 +414,13 @@ function App() {
       React.createElement(
         "div",
         null,
+        React.createElement("span", null, "推定TDEE"),
+        React.createElement("strong", null, profile.tdee ? `${profile.tdee} kcal` : "-"),
+        React.createElement("small", null, profile.bmr ? `基礎代謝 ${profile.bmr} kcal` : "基礎代謝かプロフィールを設定")
+      ),
+      React.createElement(
+        "div",
+        null,
         React.createElement("span", null, "目標赤字 / 日"),
         React.createElement("strong", null, profile.target_daily_deficit ? `${profile.target_daily_deficit} kcal` : "-"),
         React.createElement("small", null, profile.kg_to_lose ? `${profile.kg_to_lose} kg減を目標` : "目標体重と週数を設定")
@@ -441,7 +451,14 @@ function App() {
       "section",
       { className: "history" },
       meals.length === 0 && React.createElement("p", { className: "empty" }, emptyText),
-      meals.map((meal) => React.createElement(MealItem, { key: meal.id, meal, onDelete: deleteMeal }))
+      meals.map((meal, index) =>
+        React.createElement(
+          React.Fragment,
+          { key: meal.id },
+          index > 0 && React.createElement("div", { className: "mealDivider" }),
+          React.createElement(MealItem, { meal, onDelete: deleteMeal })
+        )
+      )
     );
   }
 
@@ -544,6 +561,20 @@ function App() {
     );
   }
 
+  function renderRecord() {
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(
+        "section",
+        { className: "recordSwitch" },
+        React.createElement("button", { className: recordView === "daily" ? "active" : "", onClick: () => setRecordView("daily") }, "1日"),
+        React.createElement("button", { className: recordView === "week" ? "active" : "", onClick: () => setRecordView("week") }, "1週間")
+      ),
+      recordView === "daily" ? renderDaily() : renderWeek()
+    );
+  }
+
   function renderWeek() {
     const data = weekData || { totals: emptyTotals, days: [], message: "今週はここからでOK。" };
     return React.createElement(
@@ -580,7 +611,8 @@ function App() {
               className: day.meal_count > 0 ? "weekDay recorded" : "weekDay",
               onClick: () => {
                 loadDay(day.date);
-                setView("daily");
+                setRecordView("daily");
+                setView("record");
               },
             },
             React.createElement("strong", null, day.date.slice(5).replace("-", "/")),
@@ -711,6 +743,17 @@ function App() {
       React.createElement(
         "label",
         null,
+        "基礎代謝 kcal",
+        React.createElement("input", {
+          type: "number",
+          inputMode: "numeric",
+          value: settings.basal_metabolism,
+          onChange: (event) => setSetting("basal_metabolism", event.target.value),
+        })
+      ),
+      React.createElement(
+        "label",
+        null,
         "運動回数 / 週",
         React.createElement(
           "select",
@@ -816,14 +859,12 @@ function App() {
       "nav",
       { className: "tabs" },
       React.createElement("button", { className: view === "camera" ? "active" : "", onClick: () => setView("camera") }, "撮影"),
-      React.createElement("button", { className: view === "daily" ? "active" : "", onClick: () => setView("daily") }, "1日"),
-      React.createElement("button", { className: view === "week" ? "active" : "", onClick: () => setView("week") }, "1週間"),
+      React.createElement("button", { className: view === "record" ? "active" : "", onClick: () => setView("record") }, "記録"),
       React.createElement("button", { className: view === "logs" ? "active" : "", onClick: () => setView("logs") }, "ログ"),
       React.createElement("button", { className: view === "settings" ? "active" : "", onClick: () => setView("settings") }, "設定")
     ),
     view === "camera" && renderCamera(),
-    view === "daily" && renderDaily(),
-    view === "week" && renderWeek(),
+    view === "record" && renderRecord(),
     view === "logs" && renderLogs(),
     view === "settings" && renderSettings()
   );
