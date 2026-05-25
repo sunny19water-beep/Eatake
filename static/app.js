@@ -70,6 +70,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("写真を撮るだけで記録します");
   const [settingsMessage, setSettingsMessage] = useState("");
   const [quickText, setQuickText] = useState("");
@@ -93,42 +94,47 @@ function App() {
   }, []);
 
   async function refreshAll() {
-    const authRes = await fetch("/api/auth/me");
-    const authData = await authRes.json();
-    setAuthRequired(Boolean(authData.auth_required));
-    setAuthUser(authData.user || null);
-    setAiUsage(authData.ai_usage || aiUsage);
-    setAuthReady(true);
-    if (authData.auth_required && !authData.user) return;
+    setRefreshing(true);
+    try {
+      const authRes = await fetch("/api/auth/me");
+      const authData = await authRes.json();
+      setAuthRequired(Boolean(authData.auth_required));
+      setAuthUser(authData.user || null);
+      setAiUsage(authData.ai_usage || aiUsage);
+      setAuthReady(true);
+      if (authData.auth_required && !authData.user) return;
 
-    const [todayRes, daysRes, settingsRes, weekRes] = await Promise.all([
-      fetch("/api/today"),
-      fetch("/api/days"),
-      fetch("/api/settings"),
-      fetch("/api/week"),
-    ]);
-    const todayData = await todayRes.json();
-    if (todayRes.status === 401) {
-      setAuthRequired(true);
-      setAuthUser(null);
-      return;
+      const [todayRes, daysRes, settingsRes, weekRes] = await Promise.all([
+        fetch("/api/today"),
+        fetch("/api/days"),
+        fetch("/api/settings"),
+        fetch("/api/week"),
+      ]);
+      const todayData = await todayRes.json();
+      if (todayRes.status === 401) {
+        setAuthRequired(true);
+        setAuthUser(null);
+        return;
+      }
+      const daysData = await daysRes.json();
+      const settingsData = await settingsRes.json();
+      const weekJson = await weekRes.json();
+      setSelectedDate(todayData.date);
+      setTotals(todayData.totals || emptyTotals);
+      setEnergy(todayData.energy || emptyEnergy);
+      setMeals(todayData.meals || []);
+      setReview(todayData.review || null);
+      setStreak(todayData.streak || null);
+      setWeeklySummary(todayData.weekly_summary || null);
+      setAiUsage(todayData.ai_usage || aiUsage);
+      setWeekData(weekJson);
+      setDays(daysData.days || []);
+      setSettings(settingsData.settings || defaultSettings);
+      setProfile(settingsData.profile || todayData.energy?.profile || emptyProfile);
+      setPurposes(settingsData.purposes || purposes);
+    } finally {
+      setRefreshing(false);
     }
-    const daysData = await daysRes.json();
-    const settingsData = await settingsRes.json();
-    const weekJson = await weekRes.json();
-    setSelectedDate(todayData.date);
-    setTotals(todayData.totals || emptyTotals);
-    setEnergy(todayData.energy || emptyEnergy);
-    setMeals(todayData.meals || []);
-    setReview(todayData.review || null);
-    setStreak(todayData.streak || null);
-    setWeeklySummary(todayData.weekly_summary || null);
-    setAiUsage(todayData.ai_usage || aiUsage);
-    setWeekData(weekJson);
-    setDays(daysData.days || []);
-    setSettings(settingsData.settings || defaultSettings);
-    setProfile(settingsData.profile || todayData.energy?.profile || emptyProfile);
-    setPurposes(settingsData.purposes || purposes);
   }
 
   async function logout() {
@@ -139,13 +145,18 @@ function App() {
 
   async function loadDay(day) {
     if (!day) return;
-    const response = await fetch(`/api/days/${day}`);
-    const data = await response.json();
-    setSelectedDate(data.date);
-    setTotals(data.totals || emptyTotals);
-    setEnergy(data.energy || emptyEnergy);
-    setMeals(data.meals || []);
-    setReview(data.review || null);
+    setRefreshing(true);
+    try {
+      const response = await fetch(`/api/days/${day}`);
+      const data = await response.json();
+      setSelectedDate(data.date);
+      setTotals(data.totals || emptyTotals);
+      setEnergy(data.energy || emptyEnergy);
+      setMeals(data.meals || []);
+      setReview(data.review || null);
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function reloadDays() {
@@ -483,6 +494,30 @@ function App() {
     );
   }
 
+  function renderLoadingOverlay() {
+    const active = refreshing || busy || reviewBusy || settingsBusy;
+    if (!active) return null;
+    const text = busy
+      ? "記録しています"
+      : reviewBusy
+        ? "レビューを作っています"
+        : settingsBusy
+          ? "設定を保存しています"
+          : "更新しています";
+
+    return React.createElement(
+      "div",
+      { className: "loadingOverlay", role: "status", "aria-live": "polite" },
+      React.createElement(
+        "div",
+        { className: "loadingPanel" },
+        React.createElement("span", { className: "spinner" }),
+        React.createElement("strong", null, text),
+        React.createElement("small", null, "少しだけ待ってください")
+      )
+    );
+  }
+
   function renderCamera() {
     return React.createElement(
       React.Fragment,
@@ -513,54 +548,68 @@ function App() {
             },
             disabled: busy,
           },
-          "成分表示"
+          "成分表示解析"
+        ),
+        React.createElement(
+          "button",
+          {
+            className: captureMode === "text" ? "active" : "",
+            onClick: () => {
+              setCaptureMode("text");
+              setMessage("文面だけでも記録できます");
+              stopCamera();
+            },
+            disabled: busy,
+          },
+          "文面記録"
         )
       ),
-      React.createElement(
-        "section",
-        { className: "camera" },
-        React.createElement("video", {
-          ref: videoRef,
-          autoPlay: true,
-          playsInline: true,
-          muted: true,
-          className: cameraOn ? "video isOn" : "video",
-        }),
-        !cameraOn && preview && React.createElement("img", { className: "preview", src: preview, alt: "" }),
-        !cameraOn && !preview && React.createElement("div", { className: "placeholder" }, captureMode === "label" ? "NUTRITION LABEL" : "CAMERA"),
-        React.createElement("p", { className: "status" }, status),
+      captureMode !== "text" &&
         React.createElement(
-          "div",
-          { className: "actions" },
+          "section",
+          { className: "camera" },
+          React.createElement("video", {
+            ref: videoRef,
+            autoPlay: true,
+            playsInline: true,
+            muted: true,
+            className: cameraOn ? "video isOn" : "video",
+          }),
+          !cameraOn && preview && React.createElement("img", { className: "preview", src: preview, alt: "" }),
+          !cameraOn && !preview && React.createElement("div", { className: "placeholder" }, captureMode === "label" ? "NUTRITION LABEL" : "CAMERA"),
+          React.createElement("p", { className: "status" }, status),
           React.createElement(
-            "button",
-            {
-              className: "shutter",
-              disabled: busy,
-              onClick: cameraOn ? captureAndSend : startCamera,
-            },
-            busy ? "解析中" : cameraOn ? "撮る" : "カメラ"
+            "div",
+            { className: "actions" },
+            React.createElement(
+              "button",
+              {
+                className: "shutter",
+                disabled: busy,
+                onClick: cameraOn ? captureAndSend : startCamera,
+              },
+              busy ? "解析中" : cameraOn ? "撮る" : "カメラ"
+            ),
+            React.createElement(
+              "button",
+              { className: "secondary", onClick: () => fileInputRef.current.click(), disabled: busy },
+              "写真"
+            )
           ),
-          React.createElement(
-            "button",
-            { className: "secondary", onClick: () => fileInputRef.current.click(), disabled: busy },
-            "写真"
-          )
+          React.createElement("input", {
+            ref: fileInputRef,
+            className: "file",
+            type: "file",
+            accept: "image/*",
+            capture: "environment",
+            onChange: handleFile,
+          })
         ),
-        React.createElement("input", {
-          ref: fileInputRef,
-          className: "file",
-          type: "file",
-          accept: "image/*",
-          capture: "environment",
-          onChange: handleFile,
-        })
-      ),
+      captureMode === "text" && renderQuickRecord(),
       renderTotals(),
       renderEnergyBalance(),
       renderTargetPfc(),
-      renderAiNotice(),
-      renderQuickRecord()
+      renderAiNotice()
     );
   }
 
@@ -694,9 +743,9 @@ function App() {
         React.createElement("h2", null, "レビュー"),
         React.createElement("p", null, selectedDate)
       ),
+      renderEncouragement(),
       renderTargetPfc(),
-      renderReviewBox(),
-      renderEncouragement()
+      renderReviewBox()
     );
   }
 
@@ -882,15 +931,16 @@ function App() {
     React.createElement(
       "nav",
       { className: "tabs" },
-      React.createElement("button", { className: view === "camera" ? "active" : "", onClick: () => setView("camera") }, "撮影"),
-      React.createElement("button", { className: view === "record" ? "active" : "", onClick: () => setView("record") }, "記録"),
+      React.createElement("button", { className: view === "camera" ? "active" : "", onClick: () => setView("camera") }, "記録"),
+      React.createElement("button", { className: view === "record" ? "active" : "", onClick: () => setView("record") }, "履歴"),
       React.createElement("button", { className: view === "review" ? "active" : "", onClick: () => setView("review") }, "レビュー"),
       React.createElement("button", { className: view === "settings" ? "active" : "", onClick: () => setView("settings") }, "設定")
     ),
     view === "camera" && renderCamera(),
     view === "record" && renderRecord(),
     view === "review" && renderReview(),
-    view === "settings" && renderSettings()
+    view === "settings" && renderSettings(),
+    renderLoadingOverlay()
   );
 }
 
