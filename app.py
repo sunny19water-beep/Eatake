@@ -905,6 +905,8 @@ def current_week_payload(user_id: str | None = None, days_count: int = 7) -> dic
     today = date.today()
     start = today - timedelta(days=days_count - 1)
     days = []
+    previous_start = start - timedelta(days=days_count)
+    previous_end = start - timedelta(days=1)
     with get_db() as conn:
         purge_old_logs(conn)
         for offset in range(days_count):
@@ -919,9 +921,22 @@ def current_week_payload(user_id: str | None = None, days_count: int = 7) -> dic
                 }
             )
         totals = totals_between(conn, start.isoformat(), today.isoformat())
+        previous_totals = totals_between(conn, previous_start.isoformat(), previous_end.isoformat())
+        previous_recorded_days = int(
+            conn.execute(
+                """
+                SELECT COUNT(DISTINCT eaten_date) AS count
+                FROM meals
+                WHERE eaten_date BETWEEN ? AND ?
+                """,
+                (previous_start.isoformat(), previous_end.isoformat()),
+            ).fetchone()["count"]
+        )
     averages = {key: round(value / days_count, 1) for key, value in totals.items()}
     averages["calories"] = round(totals["calories"] / days_count)
     recorded_days = sum(1 for item in days if item["meal_count"] > 0)
+    previous_averages = {key: round(value / days_count, 1) for key, value in previous_totals.items()}
+    previous_averages["calories"] = round(previous_totals["calories"] / days_count)
     if recorded_days >= 5:
         message = "この1週間、かなり戻ってこられてる。続ける力が育ってます。"
     elif recorded_days > 0:
@@ -934,8 +949,32 @@ def current_week_payload(user_id: str | None = None, days_count: int = 7) -> dic
         "days_count": days_count,
         "totals": totals,
         "averages": averages,
+        "previous_averages": previous_averages,
         "days": days,
+        "comparison": average_comparison(recorded_days, previous_recorded_days, days_count),
         "message": message,
+    }
+
+
+def average_comparison(recorded_days: int, previous_recorded_days: int, days_count: int) -> dict[str, Any]:
+    if recorded_days > previous_recorded_days:
+        return {
+            "tone": "good",
+            "text": f"前の{days_count}日間より記録できた日が増えています。これはかなり良い流れです。",
+        }
+    if recorded_days == previous_recorded_days and recorded_days > 0:
+        return {
+            "tone": "good",
+            "text": "前の期間と同じペースで戻ってこられています。継続できているのが強いです。",
+        }
+    if recorded_days > 0:
+        return {
+            "tone": "soft",
+            "text": "前の期間より少なめでも、記録できた日があります。次は1回だけ増やせたら十分です。",
+        }
+    return {
+        "tone": "soft",
+        "text": "今回は休憩気味でした。今日ここから1つ残せば、また流れを作れます。",
     }
 
 
@@ -1114,7 +1153,10 @@ def firestore_current_week_payload(user_id: str, days_count: int = 7) -> dict[st
     days_count = max(1, min(31, int(days_count or 7)))
     today = date.today()
     start = today - timedelta(days=days_count - 1)
+    previous_start = start - timedelta(days=days_count)
+    previous_end = start - timedelta(days=1)
     all_meals = firestore_meals_between(user_id, start.isoformat(), today.isoformat())
+    previous_meals = firestore_meals_between(user_id, previous_start.isoformat(), previous_end.isoformat())
     by_day: dict[str, list[dict[str, Any]]] = {}
     for meal in all_meals:
         by_day.setdefault(meal["date"], []).append(meal)
@@ -1125,6 +1167,7 @@ def firestore_current_week_payload(user_id: str, days_count: int = 7) -> dict[st
         meals = by_day.get(key, [])
         days.append({"date": key, "totals": sum_meals(meals), "meal_count": len(meals)})
     recorded_days = sum(1 for item in days if item["meal_count"] > 0)
+    previous_recorded_days = len({meal["date"] for meal in previous_meals})
     if recorded_days >= 5:
         message = "この1週間、かなり戻ってこられてる。続ける力が育ってます。"
     elif recorded_days > 0:
@@ -1132,15 +1175,20 @@ def firestore_current_week_payload(user_id: str, days_count: int = 7) -> dict[st
     else:
         message = "今週はここからでOK。まず1回だけ記録してみよう。"
     totals = sum_meals(all_meals)
+    previous_totals = sum_meals(previous_meals)
     averages = {key: round(value / days_count, 1) for key, value in totals.items()}
     averages["calories"] = round(totals["calories"] / days_count)
+    previous_averages = {key: round(value / days_count, 1) for key, value in previous_totals.items()}
+    previous_averages["calories"] = round(previous_totals["calories"] / days_count)
     return {
         "start": start.isoformat(),
         "end": today.isoformat(),
         "days_count": days_count,
         "totals": totals,
         "averages": averages,
+        "previous_averages": previous_averages,
         "days": days,
+        "comparison": average_comparison(recorded_days, previous_recorded_days, days_count),
         "message": message,
     }
 

@@ -334,7 +334,7 @@ h2 {
 
 .modeSwitch {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   margin-bottom: 8px;
 }
@@ -350,6 +350,10 @@ h2 {
   font-weight: 900;
   line-height: 1.2;
   white-space: nowrap;
+}
+
+.modeSwitch button:nth-child(2) {
+  white-space: normal;
 }
 
 .modeSwitch button.active {
@@ -1211,6 +1215,74 @@ h2 {
   font-weight: 800;
 }
 
+.averageMood {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 5px;
+  padding: 13px;
+  border: 1px solid rgba(25, 107, 79, 0.18);
+  border-radius: 8px;
+  background: #f7faf8;
+}
+
+.averageMood.good {
+  border-color: rgba(25, 107, 79, 0.28);
+  background:
+    linear-gradient(135deg, rgba(25, 107, 79, 0.12), rgba(242, 201, 76, 0.24)),
+    #f7faf8;
+  box-shadow: 0 12px 30px rgba(25, 107, 79, 0.12);
+}
+
+.averageMood.soft {
+  background: #fffaf0;
+}
+
+.averageMood strong {
+  position: relative;
+  z-index: 1;
+  font-size: 18px;
+}
+
+.averageMood p {
+  position: relative;
+  z-index: 1;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.55;
+}
+
+.sparkles span {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #f2c94c;
+  opacity: 0;
+  animation: sparkle 1500ms ease-in-out infinite;
+}
+
+.sparkles span:nth-child(1) { left: 8%; top: 24%; animation-delay: 0ms; }
+.sparkles span:nth-child(2) { left: 18%; top: 70%; animation-delay: 180ms; }
+.sparkles span:nth-child(3) { left: 38%; top: 14%; animation-delay: 320ms; }
+.sparkles span:nth-child(4) { left: 56%; top: 76%; animation-delay: 480ms; }
+.sparkles span:nth-child(5) { left: 74%; top: 18%; animation-delay: 620ms; }
+.sparkles span:nth-child(6) { left: 88%; top: 56%; animation-delay: 760ms; }
+.sparkles span:nth-child(7) { left: 46%; top: 48%; animation-delay: 900ms; }
+.sparkles span:nth-child(8) { left: 68%; top: 42%; animation-delay: 1060ms; }
+
+@keyframes sparkle {
+  0%, 100% {
+    opacity: 0;
+    scale: 0.6;
+  }
+  45% {
+    opacity: 1;
+    scale: 1.4;
+  }
+}
+
 .loadingOverlay {
   position: fixed;
   inset: 0;
@@ -1570,14 +1642,6 @@ h2 {
 
   .modeSwitch {
     gap: 6px;
-  }
-
-  .fastStart {
-    grid-template-columns: minmax(0, 1fr) 112px;
-  }
-
-  .bigCapture {
-    min-height: 68px;
   }
 
   .pendingEstimate {

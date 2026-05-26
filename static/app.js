@@ -306,7 +306,8 @@ function App() {
     }
   }
 
-  async function startCamera() {
+  async function startCamera(nextMode = captureMode) {
+    setCaptureMode(nextMode);
     setTapCount((count) => count + 1);
     setMessage("カメラを準備しています");
     try {
@@ -317,7 +318,7 @@ function App() {
       streamRef.current = stream;
       videoRef.current.srcObject = stream;
       setCameraOn(true);
-      setMessage(captureMode === "label" ? "栄養成分表示を写してシャッター" : "料理を写してシャッター");
+      setMessage(nextMode === "label" ? "栄養成分表示を写してシャッター" : "料理を写してシャッター");
     } catch (error) {
       setMessage("カメラが使えないため写真選択に切り替えます");
       fileInputRef.current.click();
@@ -1299,32 +1300,13 @@ function App() {
       renderEncouragement(),
       React.createElement(
         "section",
-        { className: "fastStart" },
-        React.createElement("button", { className: "bigCapture", onClick: startCamera, disabled: busy }, "すぐ撮る"),
-        React.createElement(
-          "button",
-          {
-            className: captureMode === "text" ? "textShortcut active" : "textShortcut",
-            onClick: () => {
-              setCaptureMode("text");
-              setMessage("文面だけでも記録できます");
-              stopCamera();
-            },
-            disabled: busy,
-          },
-          "文面で残す"
-        )
-      ),
-      React.createElement(
-        "section",
         { className: "modeSwitch" },
         React.createElement(
           "button",
           {
             className: captureMode === "meal" ? "active" : "",
             onClick: () => {
-              setCaptureMode("meal");
-              setMessage("食事写真から栄養を推定します");
+              startCamera("meal");
             },
             disabled: busy,
           },
@@ -1335,8 +1317,7 @@ function App() {
           {
             className: captureMode === "label" ? "active" : "",
             onClick: () => {
-              setCaptureMode("label");
-              setMessage("栄養成分表示の数値を採用します");
+              startCamera("label");
             },
             disabled: busy,
           },
@@ -1354,6 +1335,19 @@ function App() {
             disabled: busy,
           },
           "成分手入力"
+        ),
+        React.createElement(
+          "button",
+          {
+            className: captureMode === "text" ? "active" : "",
+            onClick: () => {
+              setCaptureMode("text");
+              setMessage("文面だけでも記録できます");
+              stopCamera();
+            },
+            disabled: busy,
+          },
+          "文面で残す"
         )
       ),
       renderPendingEstimate(),
@@ -1483,6 +1477,7 @@ function App() {
 
   function renderAveragePanel() {
     const data = weekData || { totals: emptyTotals, days: [], message: "今週はここからでOK。" };
+    const comparison = data.comparison || { tone: "soft", text: "平均を見ながら、次の1回につなげましょう。" };
     const rangeOptions = [
       [3, "平均3日"],
       [7, "1週間"],
@@ -1516,8 +1511,15 @@ function App() {
       ),
       React.createElement(
         "div",
-        { className: "encouragement" },
-        React.createElement("strong", null, data.message)
+        { className: `averageMood ${comparison.tone}` },
+        comparison.tone === "good" &&
+          React.createElement(
+            "div",
+            { className: "sparkles", "aria-hidden": "true" },
+            Array.from({ length: 8 }).map((_, index) => React.createElement("span", { key: index }))
+          ),
+        React.createElement("strong", null, comparison.tone === "good" ? "いい流れです" : "次につながっています"),
+        React.createElement("p", null, comparison.text)
       ),
       React.createElement(
         "div",
