@@ -5,8 +5,10 @@
 Eatake は、食事記録を続けたいけれど、細かい入力が面倒で続かない人に向けたAI食事管理アプリです。  
 「完璧な記録」よりも「続く記録」を重視し、写真・成分表示・文面・手入力の複数の入口から、できるだけ少ない操作で食事ログを残せるようにしています。
 
+このwebアプリはSAJ B Sports(https://archive.saj.or.jp/aibcf2026/)のAIサービス開発部門に提出した作品になります
 - Demo: https://eatake.onrender.com/
-- GitHub: https://github.com/sunny19water-beep/Eatake
+- [Eatake_AI_Contest.pdf](https://github.com/user-attachments/files/28255398/Eatake_AI_Contest.pdf)
+
 
 ---
 
