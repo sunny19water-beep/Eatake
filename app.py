@@ -31,6 +31,8 @@ LOG_RETENTION_DAYS = 90
 
 load_dotenv(BASE_DIR / ".env")
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+SAKURA_AI_BASE_URL = os.getenv("SAKURA_AI_BASE_URL", "https://api.ai.sakura.ad.jp/v1").rstrip("/")
+SAKURA_AI_MODEL = os.getenv("SAKURA_AI_MODEL", "gpt-oss-120b")
 STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "sqlite").lower()
 AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "false").lower() == "true"
 PROTOTYPE_USER_ID = os.getenv("PROTOTYPE_USER_ID", "prototype")
@@ -463,7 +465,7 @@ def save_settings(payload: dict[str, Any], user_id: str | None = None) -> dict[s
     if settings["purpose"] not in PURPOSE_SET:
         raise HTTPException(status_code=400, detail="目的は指定された4択から選んでください。")
     if settings["review_tone"] not in REVIEW_TONE_SET:
-        raise HTTPException(status_code=400, detail="AIレビューの口調は指定された選択肢から選んでください。")
+        raise HTTPException(status_code=400, detail="サクラAIの口調は指定された選択肢から選んでください。")
 
     for key in ("age", "weight", "height"):
         if settings[key] and clamp_number(settings[key], maximum=400) <= 0:
@@ -1247,10 +1249,12 @@ def build_review_text(
     else:
         pfc_gap = "目標PFCは未設定。設定が足りない場合は、設定を埋めると精度が上がると軽く伝える。"
     return f"""
-あなたはライト層向けの食事記録アプリ Eatake のAIレビュー担当です。
+あなたはライト層向けの食事記録アプリ Eatake のレビュー担当「サクラAI」です。
 ユーザーは継続が苦手でも続けられる体験を求めています。
-レビューは日本語で、少し長めに、読みやすい段落で返してください。
+サクラAIは、食事管理を責める先生ではなく、記録を続ける横でやさしく背中を押す相棒です。
+レビューは日本語で、短めに、読みやすい段落で返してください。
 デフォルトは甘目で、記録した行動そのものを褒めます。
+絵文字は使っても1個までにしてください。
 医学的な断定、過度な危機感、人格否定、強い説教は禁止です。
 
 口調設定: {tone}
@@ -1283,21 +1287,21 @@ def build_review_text(
 次の見出しを必ずこの表記で使ってください。
 
 今日の振り返り
-（今日の食事内容、PFCの傾向、カロリー収支や赤字をやさしく振り返る）
+（今日一日の食事内容、PFCの傾向、カロリー収支をやさしく振り返る）
 
 よかった点
-（記録したこと自体を褒める）
+（記録したこと、選べていた食事、続ける姿勢などを具体的に褒める）
 
-継続のこと
-（連続記録している場合はその継続を褒める。連続でない場合は責めずに再スタートを応援）
+ペース
+（目的、TDEE、目標赤字、PFC差分を見て、今のペースが順調かをやさしく伝える。悪い場合も責めず、励ましと現実的な改善案を出す）
 
 次の一手
-（次につながる小さな行動を1つだけ提案する）
+（次にもっと良くするための小さな行動を1つだけ提案する）
 
 PFCは、足りない/多いを必要なら具体的なgで触れてください。
-カロリー収支は、TDEEとの差分と目標赤字を見比べて、赤字/超過を責めずに表示してください。
-ただし甘目では「あと少し足せると良さそう」のようにやわらかく。
-返答は280〜420文字くらい。箇条書きではなく、自然な文章で返してください。
+カロリー収支は、TDEEとの差分と目標赤字を見比べて、順調/少し不足/少し多めのように責めずに表示してください。
+悪いペースでも「ここから整えれば大丈夫」の温度で、相手に寄り添う文章にしてください。
+返答は220〜340文字くらい。箇条書きではなく、自然な文章で返してください。
 """
 
 
@@ -1308,12 +1312,21 @@ def generate_ai_review(
     settings: dict[str, str],
     user_id: str | None = None,
 ) -> str:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
+    provider = review_ai_provider()
+    if provider is None:
         return template_review(day, totals, settings)
 
-    client = genai.Client(api_key=api_key)
     prompt = build_review_text(day, totals, meals, settings, user_id)
+    if provider == "sakura":
+        return sakura_chat_completion(
+            [{"role": "user", "content": prompt}],
+            model=SAKURA_AI_MODEL,
+            max_tokens=1800,
+            temperature=0.45,
+        )
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    client = genai.Client(api_key=api_key)
     try:
         response = client.models.generate_content(
             model=MODEL_NAME,
@@ -1395,9 +1408,19 @@ def template_review(day: str, totals: dict[str, float], settings: dict[str, str]
     energy = energy_summary(totals, settings)
     target = energy["target_pfc"]
     if totals["calories"] == 0:
-        return "今日はまだ白紙。アプリを開けた時点で前進です。まず1枚だけ撮れたら十分。"
+        return (
+            "今日の振り返り\n今日はまだ記録が少なめですが、アプリを開けた時点で一歩進めています。\n\n"
+            "よかった点\n完璧に始めなくても、気づいた時に戻ってこられたことが良いところです。\n\n"
+            "ペース\n今日はここから整えれば大丈夫です。焦らず、まず1つ残せれば十分です。\n\n"
+            "次の一手\n次の食事を写真か文面で1つだけ記録してみましょう。"
+        )
     if not target["ready"]:
-        return "今日も記録できてるのがまず強い。設定を少し埋めると、PFCの目安も一緒に見られます。"
+        return (
+            "今日の振り返り\n今日も食事を記録できていて、続ける土台はしっかり作れています。\n\n"
+            "よかった点\n細かい数字より、まず残せたことが一番大きいです。\n\n"
+            "ペース\n設定が未入力なので目標との差はまだ見えにくいですが、継続のペースは悪くありません。\n\n"
+            "次の一手\n年齢・身長・体重を入れると、ペースの見え方がもっと分かりやすくなります。"
+        )
 
     gaps = [
         ("タンパク質", round(target["protein"] - totals["protein"], 1), "g"),
@@ -1407,8 +1430,18 @@ def template_review(day: str, totals: dict[str, float], settings: dict[str, str]
     shortage = [f"{name}あと{amount}{unit}" for name, amount, unit in gaps if amount > 0]
     if shortage:
         pfc_text = "、".join(shortage[:2])
-        return f"今日も記録できてえらい。目標PFCまでは{pfc_text}くらい。次の1食で少し足せたら十分です。"
-    return "今日のPFCはかなり目標に近いです。ここまで記録できているのが強いので、明日も1枚だけでOK。"
+        return (
+            f"今日の振り返り\n今日の記録を見ると、目標PFCまでは{pfc_text}くらい余裕があります。\n\n"
+            "よかった点\n食べたものを残せているので、今の状態をちゃんと見られています。\n\n"
+            "ペース\n少し足りない部分はありますが、ここから調整できる範囲です。悪い流れではありません。\n\n"
+            "次の一手\n次の食事でタンパク質か主食を少し足すと、かなり整いやすくなります。"
+        )
+    return (
+        "今日の振り返り\n今日のPFCはかなり目標に近く、全体の流れは整っています。\n\n"
+        "よかった点\nここまで記録できていること自体が、継続につながる良い動きです。\n\n"
+        "ペース\n今のペースは順調です。無理に詰めすぎず、このくらいの感覚で続けられると強いです。\n\n"
+        "次の一手\n明日もまず1食だけ、気軽に残していきましょう。"
+    )
 
 
 def parse_json_response(text: str) -> dict[str, Any]:
@@ -1419,8 +1452,84 @@ def parse_json_response(text: str) -> dict[str, Any]:
     start = cleaned.find("{")
     end = cleaned.rfind("}")
     if start == -1 or end == -1:
-        raise ValueError("Gemini did not return JSON.")
+        raise ValueError("AI did not return JSON.")
     return json.loads(cleaned[start : end + 1])
+
+
+def review_ai_provider() -> str | None:
+    if os.getenv("SAKURA_AI_API_KEY") or os.getenv("SAKURA_API_KEY"):
+        return "sakura"
+    if os.getenv("GEMINI_API_KEY"):
+        return "gemini"
+    return None
+
+
+def has_review_ai_provider() -> bool:
+    return review_ai_provider() is not None
+
+
+def has_analysis_ai_provider() -> bool:
+    return bool(os.getenv("GEMINI_API_KEY"))
+
+
+def sakura_ai_token() -> str:
+    token = os.getenv("SAKURA_AI_API_KEY") or os.getenv("SAKURA_API_KEY")
+    if not token:
+        raise HTTPException(status_code=500, detail="SAKURA_AI_API_KEY is not set.")
+    return token
+
+
+def extract_chat_content(payload: dict[str, Any]) -> str:
+    try:
+        content = payload["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError("Sakura AI response did not contain message content.") from exc
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text") or item.get("content") or ""))
+            else:
+                parts.append(str(item))
+        return "\n".join(part for part in parts if part).strip()
+    return str(content or "").strip()
+
+
+def sakura_chat_completion(
+    messages: list[dict[str, Any]],
+    model: str | None = None,
+    max_tokens: int = 900,
+    temperature: float = 0.3,
+) -> str:
+    try:
+        response = httpx.post(
+            f"{SAKURA_AI_BASE_URL}/chat/completions",
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {sakura_ai_token()}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model or SAKURA_AI_MODEL,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": False,
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+        text = extract_chat_content(response.json())
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:500] if exc.response is not None else str(exc)
+        raise HTTPException(status_code=502, detail=f"Sakura AI API error: {detail}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Sakura AI API error: {exc}") from exc
+    if not text:
+        raise HTTPException(status_code=502, detail="Sakura AI response was empty.")
+    return text
 
 
 def clamp_number(value: Any, minimum: float = 0, maximum: float = 5000) -> float:
@@ -1447,7 +1556,6 @@ async def estimate_nutrition(image: UploadFile, image_bytes: bytes) -> dict[str,
             "notes": "GEMINI_API_KEY 未設定のためデモ値です。",
         }
 
-    client = genai.Client(api_key=api_key)
     mime_type = image.content_type or "image/jpeg"
     prompt = """
 あなたは栄養記録アプリの画像解析エンジンです。
@@ -1471,6 +1579,7 @@ async def estimate_nutrition(image: UploadFile, image_bytes: bytes) -> dict[str,
 caloriesはkcal、protein/fat/carbs/fiber/sugar/saltはg、confidenceは0.0から1.0です。
 糖質は、推定できる場合は炭水化物から食物繊維を除いた量として返してください。
 """
+    client = genai.Client(api_key=api_key)
     try:
         response = client.models.generate_content(
             model=MODEL_NAME,
@@ -1519,7 +1628,6 @@ async def estimate_nutrition_label(image: UploadFile, image_bytes: bytes) -> dic
             "notes": "GEMINI_API_KEY 未設定のためデモ値です。",
         }
 
-    client = genai.Client(api_key=api_key)
     mime_type = image.content_type or "image/jpeg"
     prompt = """
 あなたは栄養成分表示を読み取るOCRエンジンです。
@@ -1545,6 +1653,7 @@ async def estimate_nutrition_label(image: UploadFile, image_bytes: bytes) -> dic
 }
 caloriesはkcal、protein/fat/carbs/fiber/sugar/saltはgです。
 """
+    client = genai.Client(api_key=api_key)
     try:
         response = client.models.generate_content(
             model=MODEL_NAME,
@@ -1836,7 +1945,7 @@ def create_daily_review(day: str, request: Request) -> dict[str, Any]:
     user_id = scoped_user_id(request)
     payload = day_payload(day, user_id)
     settings = get_settings(user_id=user_id)
-    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    quota = consume_ai_quota(user_id) if has_review_ai_provider() else usage_status(user_id)
     text = generate_ai_review(day, payload["totals"], payload["meals"], settings, user_id)
     return {"review": save_review(day, text, user_id), "ai_usage": quota}
 
@@ -1844,7 +1953,7 @@ def create_daily_review(day: str, request: Request) -> dict[str, Any]:
 @app.post("/api/analyze-text")
 def analyze_text(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     user_id = scoped_user_id(request)
-    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    quota = consume_ai_quota(user_id) if has_analysis_ai_provider() else usage_status(user_id)
     estimate = estimate_text_meal(str(payload.get("text") or ""))
     result = save_meal_estimate(estimate, user_id, eaten_date=normalize_day(payload.get("date")))
     result["ai_usage"] = quota
@@ -1978,7 +2087,7 @@ def save_meal_estimate(
 async def analyze_image(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     image_bytes = await read_image(file)
     user_id = scoped_user_id(request)
-    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    quota = consume_ai_quota(user_id) if has_analysis_ai_provider() else usage_status(user_id)
     estimate = await estimate_nutrition(file, image_bytes)
     reject_if_not_food(estimate)
     result = save_meal_estimate(estimate, user_id, make_image_data_url(image_bytes))
@@ -1990,7 +2099,7 @@ async def analyze_image(request: Request, file: UploadFile = File(...)) -> dict[
 async def estimate_image(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     image_bytes = await read_image(file)
     user_id = scoped_user_id(request)
-    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    quota = consume_ai_quota(user_id) if has_analysis_ai_provider() else usage_status(user_id)
     estimate = await estimate_nutrition(file, image_bytes)
     reject_if_not_food(estimate)
     return {"estimate": estimate, "image_data": make_image_data_url(image_bytes), "ai_usage": quota}
@@ -2000,7 +2109,7 @@ async def estimate_image(request: Request, file: UploadFile = File(...)) -> dict
 async def analyze_label(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     image_bytes = await read_image(file)
     user_id = scoped_user_id(request)
-    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    quota = consume_ai_quota(user_id) if has_analysis_ai_provider() else usage_status(user_id)
     estimate = await estimate_nutrition_label(file, image_bytes)
     reject_if_not_label(estimate)
     result = save_meal_estimate(estimate, user_id, make_image_data_url(image_bytes))
@@ -2012,7 +2121,7 @@ async def analyze_label(request: Request, file: UploadFile = File(...)) -> dict[
 async def estimate_label(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     image_bytes = await read_image(file)
     user_id = scoped_user_id(request)
-    quota = consume_ai_quota(user_id) if os.getenv("GEMINI_API_KEY") else usage_status(user_id)
+    quota = consume_ai_quota(user_id) if has_analysis_ai_provider() else usage_status(user_id)
     estimate = await estimate_nutrition_label(file, image_bytes)
     reject_if_not_label(estimate)
     return {"estimate": estimate, "image_data": make_image_data_url(image_bytes), "ai_usage": quota}

@@ -1021,10 +1021,10 @@ function App() {
       return React.createElement(
         "p",
         null,
-        "今日の記録を確定すると、AIが食事の振り返り、記録できたこと、継続、次の一手をまとめます"
+        "今日の記録を確定すると、サクラAIが一日の振り返り、良かった点、ペース、次の一手をまとめます"
       );
     }
-    const titles = ["今日の振り返り", "よかった点", "継続のこと", "次の一手"];
+    const titles = ["今日の振り返り", "よかった点", "ペース", "次の一手"];
     const text = review.text || "";
     const sections = titles.map((title, index) => {
       const start = text.indexOf(title);
@@ -1063,7 +1063,7 @@ function App() {
       React.createElement(
         "div",
         null,
-        React.createElement("h2", null, "AIレビュー"),
+        React.createElement("h2", null, "サクラAIレビュー"),
         renderReviewText()
       ),
       React.createElement(
@@ -1151,7 +1151,7 @@ function App() {
       "details",
       { className: "privacyPanel" },
       React.createElement("summary", null, "プライバシーとデータ削除"),
-      React.createElement("p", null, "Eatakeは、食事写真、栄養推定結果、体重などの設定情報、AIレビューを記録します。写真は表示用に小さく圧縮して保存します。"),
+      React.createElement("p", null, "Eatakeは、食事写真、栄養推定結果、体重などの設定情報、サクラAIレビューを記録します。写真は表示用に小さく圧縮して保存します。"),
       React.createElement("p", null, "プロトタイプ中はログインなしで使えるため、公開環境では同じプロトタイプ領域に保存されます。個人情報を含む写真やメモは入れすぎないでください。"),
       React.createElement("p", null, "本公開時は認証を有効にして、ユーザーごとに保存領域を分ける想定です。"),
       React.createElement("button", { className: "delete wideButton", onClick: deleteAllData, disabled: busy }, "すべての記録を削除")
@@ -1305,7 +1305,7 @@ function App() {
     const text = busy
       ? "記録しています"
       : reviewBusy
-        ? "レビューを作っています"
+        ? "サクラAIがレビューを作っています"
         : diaryBusy
           ? "日記を保存しています"
           : settingsBusy
@@ -1652,7 +1652,7 @@ function App() {
         { className: "sectionHead reviewHead" },
         React.createElement("strong", { className: "streakHeadline" }, `${streak?.streak || 0}日継続中！`),
         React.createElement("h2", null, "レビュー"),
-        React.createElement("p", null, "写真・PFC・日記・継続日数から、続けるための声かけを作ります")
+        React.createElement("p", null, "写真・PFC・日記・継続日数から、サクラAIが続けるための声かけを作ります")
       ),
       renderEncouragement(),
       renderEnergyBalance(),
@@ -1803,7 +1803,7 @@ function App() {
       React.createElement(
         "label",
         null,
-        "AIレビューの口調",
+        "サクラAIの口調",
         React.createElement(
           "select",
           { value: settings.review_tone || "甘目", onChange: (event) => setSetting("review_tone", event.target.value) },

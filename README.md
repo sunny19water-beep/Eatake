@@ -131,7 +131,7 @@ Eatakeでは、以下の情報を扱います。
 
 - Backend: FastAPI
 - Frontend: React / HTML / CSS / JavaScript
-- AI: Gemini API
+- AI: Gemini API（栄養推定）/ さくらのAI Engine（レビュー）
 - Database: SQLite / Firestore
 - Deploy: Render
 
