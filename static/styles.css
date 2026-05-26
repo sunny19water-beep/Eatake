@@ -51,10 +51,10 @@ button:not(:disabled):active {
 }
 
 .shell {
-  width: min(620px, 100%);
+  width: min(580px, 100%);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 18px 16px 28px;
+  padding: 14px 14px 26px;
 }
 
 .topbar {
@@ -62,7 +62,7 @@ button:not(:disabled):active {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .eyebrow {
@@ -80,7 +80,7 @@ p {
 }
 
 h1 {
-  font-size: 44px;
+  font-size: 38px;
   line-height: 1;
   letter-spacing: 0;
 }
@@ -139,13 +139,13 @@ h2 {
 .tabs {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
 .tabs button {
-  min-height: 44px;
-  padding: 0 8px;
+  min-height: 40px;
+  padding: 0 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -335,17 +335,18 @@ h2 {
 .modeSwitch {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .modeSwitch button {
-  min-height: 46px;
-  padding: 0 8px;
+  min-height: 40px;
+  padding: 0 5px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
   color: var(--muted);
+  font-size: 12px;
   font-weight: 900;
   line-height: 1.2;
   white-space: nowrap;
@@ -387,8 +388,8 @@ h2 {
 }
 
 .encouragement {
-  margin-bottom: 14px;
-  padding: 14px;
+  margin-bottom: 10px;
+  padding: 11px;
   border: 1px solid rgba(25, 107, 79, 0.2);
   border-radius: 8px;
   background: #f3fbf7;
@@ -396,16 +397,16 @@ h2 {
 
 .contestIntro {
   display: grid;
-  gap: 7px;
-  margin-bottom: 12px;
-  padding: 13px;
+  gap: 6px;
+  margin-bottom: 9px;
+  padding: 11px 12px;
   border: 1px solid rgba(25, 107, 79, 0.2);
   border-radius: 8px;
   background: #f7faf8;
 }
 
 .contestIntro strong {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.35;
 }
 
@@ -423,7 +424,7 @@ h2 {
 }
 
 .demoMetrics span {
-  min-height: 32px;
+  min-height: 30px;
   display: grid;
   place-items: center;
   padding: 0 8px;
@@ -448,8 +449,8 @@ h2 {
 }
 
 .quickRecord {
-  margin-bottom: 16px;
-  padding: 14px;
+  margin-bottom: 10px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -463,7 +464,7 @@ h2 {
 
 .quickRecord textarea {
   width: 100%;
-  min-height: 104px;
+  min-height: 86px;
   resize: vertical;
   padding: 12px;
   border: 1px solid var(--line);
@@ -531,13 +532,13 @@ h2 {
 .fastStart {
   display: grid;
   grid-template-columns: 1fr 126px;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .bigCapture,
 .textShortcut {
-  min-height: 72px;
+  min-height: 64px;
   border-radius: 8px;
   font-weight: 900;
 }
@@ -545,8 +546,8 @@ h2 {
 .bigCapture {
   background: var(--green);
   color: white;
-  font-size: 24px;
-  box-shadow: 0 14px 36px rgba(25, 107, 79, 0.22);
+  font-size: 22px;
+  box-shadow: 0 10px 26px rgba(25, 107, 79, 0.18);
 }
 
 .textShortcut {
@@ -1564,7 +1565,7 @@ h2 {
   .tabs button {
     padding: 0 4px;
     font-size: 12px;
-    min-height: 42px;
+    min-height: 40px;
   }
 
   .modeSwitch {
@@ -1576,7 +1577,7 @@ h2 {
   }
 
   .bigCapture {
-    min-height: 82px;
+    min-height: 68px;
   }
 
   .pendingEstimate {
@@ -1590,7 +1591,7 @@ h2 {
 
   .modeSwitch button,
   .recordSwitch button {
-    min-height: 46px;
+    min-height: 42px;
     padding: 0 5px;
     font-size: 12px;
   }
