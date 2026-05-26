@@ -143,6 +143,7 @@ function App() {
   const [successBurst, setSuccessBurst] = useState(false);
   const [quickDate, setQuickDate] = useState("");
   const [pendingEstimate, setPendingEstimate] = useState(null);
+  const [imageError, setImageError] = useState(null);
   const [editingMeal, setEditingMeal] = useState(null);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
@@ -352,6 +353,7 @@ function App() {
   async function sendImage(blob, filename) {
     const loadingStartedAt = Date.now();
     setBusy(true);
+    setImageError(null);
     setMessage(captureMode === "label" ? "栄養成分表示を読み取っています" : "Geminiで推定しています");
     const formData = new FormData();
     formData.append("file", blob, filename);
@@ -370,7 +372,13 @@ function App() {
       setAiUsage(data.ai_usage || aiUsage);
       setMessage("推定結果を確認してください");
     } catch (error) {
-      setMessage(error.message);
+      const fallback = captureMode === "label" ? "成分表示を文面で残す" : "食べたものを文面で残す";
+      setImageError({
+        title: captureMode === "label" ? "成分表示を読み取れませんでした" : "食事を識別できませんでした",
+        text: error.message || "画像だけでは判断できませんでした。",
+        action: fallback,
+      });
+      setMessage("画像では判断できませんでした。文面で残せます。");
       setCaptureMode("text");
       setQuickText((current) => current || "");
     } finally {
@@ -764,6 +772,32 @@ function App() {
           disabled: busy || !manualMeal.dish_name.trim() || !String(manualMeal.calories).trim(),
         },
         busy ? "記録中" : "この成分で記録"
+      )
+    );
+  }
+
+  function renderImageError() {
+    if (!imageError) return null;
+    return React.createElement(
+      "section",
+      { className: "imageErrorBox" },
+      React.createElement("strong", null, imageError.title),
+      React.createElement("p", null, imageError.text),
+      React.createElement(
+        "div",
+        { className: "confirmActions" },
+        React.createElement("button", { className: "ghost", onClick: () => setImageError(null) }, "閉じる"),
+        React.createElement(
+          "button",
+          {
+            className: "primary",
+            onClick: () => {
+              setCaptureMode("text");
+              setImageError(null);
+            },
+          },
+          imageError.action || "文面で残す"
+        )
       )
     );
   }
@@ -1351,6 +1385,7 @@ function App() {
         )
       ),
       renderPendingEstimate(),
+      renderImageError(),
       captureMode !== "text" &&
         captureMode !== "manual" &&
         React.createElement(
