@@ -1460,8 +1460,7 @@ function App() {
         React.createElement(Stat, { label: "平均カロリー", value: (data.averages || data.totals).calories, unit: "kcal/日", tone: "wide" }),
         React.createElement(Stat, { label: "平均タンパク質", value: (data.averages || data.totals).protein, unit: "g/日" }),
         React.createElement(Stat, { label: "平均脂質", value: (data.averages || data.totals).fat, unit: "g/日" }),
-        React.createElement(Stat, { label: "平均糖質", value: (data.averages || data.totals).sugar, unit: "g/日" }),
-        React.createElement(Stat, { label: "平均食物繊維", value: (data.averages || data.totals).fiber, unit: "g/日" })
+        React.createElement(Stat, { label: "平均炭水化物", value: (data.averages || data.totals).carbs, unit: "g/日" })
       ),
       React.createElement(
         "div",
