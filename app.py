@@ -2133,3 +2133,38 @@ def submit_feedback(request: Request, payload: dict[str, Any] = Body(...)) -> di
         with get_db() as conn:
             conn.execute("INSERT INTO feedback (created_at, message) VALUES (?, ?)", (created_at, message))
     return {"status": "ok", "message": "送信しました。ありがとう。"}
+
+
+@app.get("/api/feedback")
+def list_feedback(request: Request) -> dict[str, Any]:
+    scoped_user_id(request)
+    if STORAGE_BACKEND == "firestore":
+        items = []
+        for doc in fs().collection("feedback").stream():
+            data = doc.to_dict() or {}
+            items.append(
+                {
+                    "id": doc.id,
+                    "created_at": data.get("created_at", ""),
+                    "message": data.get("message", ""),
+                    "user_id": data.get("user_id", ""),
+                }
+            )
+        items.sort(key=lambda item: item["created_at"], reverse=True)
+        return {"feedback": items[:50]}
+
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, created_at, message
+            FROM feedback
+            ORDER BY created_at DESC, id DESC
+            LIMIT 50
+            """
+        ).fetchall()
+    return {
+        "feedback": [
+            {"id": row["id"], "created_at": row["created_at"], "message": row["message"], "user_id": PROTOTYPE_USER_ID}
+            for row in rows
+        ]
+    }

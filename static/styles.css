@@ -394,6 +394,47 @@ h2 {
   background: #f3fbf7;
 }
 
+.contestIntro {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 12px;
+  padding: 13px;
+  border: 1px solid rgba(25, 107, 79, 0.2);
+  border-radius: 8px;
+  background: #f7faf8;
+}
+
+.contestIntro strong {
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.contestIntro p {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.55;
+}
+
+.demoMetrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.demoMetrics span {
+  min-height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+}
+
 .encouragement strong {
   line-height: 1.45;
 }
@@ -1292,6 +1333,37 @@ h2 {
   font-size: 18px;
 }
 
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.feedbackList {
+  display: grid;
+  gap: 8px;
+}
+
+.feedbackList article {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.feedbackList span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.feedbackList p {
+  color: var(--text);
+}
+
 .modalBackdrop {
   position: fixed;
   inset: 0;
@@ -1531,6 +1603,10 @@ h2 {
 
   .dailySubhead span {
     text-align: left;
+  }
+
+  .demoMetrics {
+    grid-template-columns: 1fr;
   }
 
   .manualGrid {

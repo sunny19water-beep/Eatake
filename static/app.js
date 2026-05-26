@@ -146,6 +146,8 @@ function App() {
   const [editingMeal, setEditingMeal] = useState(null);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackItems, setFeedbackItems] = useState([]);
+  const [feedbackLoadMessage, setFeedbackLoadMessage] = useState("");
   const [updateReady, setUpdateReady] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -657,8 +659,27 @@ function App() {
       if (!response.ok) throw new Error(data.detail || "送信に失敗しました");
       setFeedbackText("");
       setFeedbackMessage(data.message || "送信しました");
+      loadFeedback();
     } catch (error) {
       setFeedbackMessage(error.message);
+    } finally {
+      await keepLoadingVisible(loadingStartedAt);
+      setSettingsBusy(false);
+    }
+  }
+
+  async function loadFeedback() {
+    setSettingsBusy(true);
+    setFeedbackLoadMessage("");
+    const loadingStartedAt = Date.now();
+    try {
+      const response = await fetch("/api/feedback");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "読み込みに失敗しました");
+      setFeedbackItems(data.feedback || []);
+      setFeedbackLoadMessage((data.feedback || []).length ? "" : "まだフィードバックはありません");
+    } catch (error) {
+      setFeedbackLoadMessage(error.message);
     } finally {
       await keepLoadingVisible(loadingStartedAt);
       setSettingsBusy(false);
@@ -1118,6 +1139,49 @@ function App() {
     );
   }
 
+  function renderContestIntro() {
+    return React.createElement(
+      "section",
+      { className: "contestIntro" },
+      React.createElement("strong", null, "食事記録は、面倒だから続かない。"),
+      React.createElement("p", null, "Eatakeは撮るだけ。撮れない日は文面、成分表示は手入力。完璧より、続くことを優先します。"),
+      React.createElement(
+        "div",
+        { className: "demoMetrics" },
+        React.createElement("span", null, "最短1タップで開始"),
+        React.createElement("span", null, lastRecordTaps ? `直近 ${lastRecordTaps}タップで完了` : "記録完了までのタップ数を計測")
+      )
+    );
+  }
+
+  function renderFeedbackInbox() {
+    return React.createElement(
+      "section",
+      { className: "feedbackPanel feedbackInbox" },
+      React.createElement(
+        "div",
+        { className: "panelHead" },
+        React.createElement("h2", null, "改善ログ"),
+        React.createElement("button", { className: "ghost compactButton", onClick: loadFeedback, disabled: settingsBusy }, "読み込み")
+      ),
+      React.createElement("p", null, "送られた不具合・要望を確認できます。プロトタイプ改善の証拠としてデモで見せやすい欄です。"),
+      feedbackLoadMessage && React.createElement("p", { className: "formMessage" }, feedbackLoadMessage),
+      feedbackItems.length > 0 &&
+        React.createElement(
+          "div",
+          { className: "feedbackList" },
+          feedbackItems.map((item) =>
+            React.createElement(
+              "article",
+              { key: item.id },
+              React.createElement("span", null, item.created_at || "日時なし"),
+              React.createElement("p", null, item.message)
+            )
+          )
+        )
+    );
+  }
+
   function buildTips() {
     const target = energy.target_pfc || emptyTargetPfc;
     const tips = [];
@@ -1231,6 +1295,7 @@ function App() {
     return React.createElement(
       React.Fragment,
       null,
+      renderContestIntro(),
       renderEncouragement(),
       React.createElement(
         "section",
@@ -1546,7 +1611,7 @@ function App() {
         { className: "sectionHead reviewHead" },
         React.createElement("strong", { className: "streakHeadline" }, `${streak?.streak || 0}日継続中！`),
         React.createElement("h2", null, "レビュー"),
-        React.createElement("p", null, selectedDate)
+        React.createElement("p", null, "写真・PFC・日記・継続日数から、続けるための声かけを作ります")
       ),
       renderEncouragement(),
       renderReviewBox()
@@ -1711,7 +1776,8 @@ function App() {
       ),
       settingsMessage && React.createElement("p", { className: "formMessage" }, settingsMessage),
       renderPrivacyPanel(),
-      renderFeedbackPanel()
+      renderFeedbackPanel(),
+      renderFeedbackInbox()
     );
   }
 
