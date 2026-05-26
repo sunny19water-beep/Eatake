@@ -213,14 +213,14 @@ h2 {
 
 .energyBox {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  margin: -6px 0 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 0 10px;
 }
 
 .energyBox > div {
-  min-height: 96px;
-  padding: 14px;
+  min-height: 66px;
+  padding: 9px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -230,12 +230,14 @@ h2 {
 .energyBox small {
   display: block;
   color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .energyBox strong {
   display: block;
-  margin: 7px 0 2px;
-  font-size: 26px;
+  margin: 4px 0 1px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -1707,7 +1709,21 @@ h2 {
   }
 
   .energyBox {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .energyBox > div {
+    min-height: 62px;
+    padding: 7px;
+  }
+
+  .energyBox span,
+  .energyBox small {
+    font-size: 10px;
+  }
+
+  .energyBox strong {
+    font-size: 16px;
   }
 
   .meal {

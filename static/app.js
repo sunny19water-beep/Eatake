@@ -1448,6 +1448,8 @@ function App() {
       ),
       renderDailySubhead("グラフ", "推奨PFCとの差"),
       renderPfcGapGraph(),
+      renderDailySubhead("カロリー収支", "TDEEとの差と目標赤字"),
+      renderEnergyBalance(),
       renderDailySubhead("摂取と記録", "この日に食べたもの"),
       renderTotals(),
       renderAiNotice(),
@@ -1598,6 +1600,8 @@ function App() {
       renderDailySubhead("PFC", "選択日の摂取量"),
       renderTotals(),
       renderPfcGapGraph(),
+      renderDailySubhead("カロリー収支", "選択日の赤字と収支"),
+      renderEnergyBalance(),
       renderAiNotice(),
       renderDailySubhead("記録", "選択日に食べたもの"),
       renderMealList("この日の記録はありません")
@@ -1616,6 +1620,7 @@ function App() {
         React.createElement("p", null, "写真・PFC・日記・継続日数から、続けるための声かけを作ります")
       ),
       renderEncouragement(),
+      renderEnergyBalance(),
       renderReviewBox()
     );
   }
