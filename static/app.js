@@ -1407,10 +1407,12 @@ function App() {
         "section",
         { className: "recordSwitch" },
         React.createElement("button", { className: recordView === "daily" ? "active" : "", onClick: () => setRecordView("daily") }, "1日"),
-        React.createElement("button", { className: recordView === "calendar" ? "active" : "", onClick: () => setRecordView("calendar") }, "カレンダー")
+        React.createElement("button", { className: recordView === "calendar" ? "active" : "", onClick: () => setRecordView("calendar") }, "カレンダー"),
+        React.createElement("button", { className: recordView === "average" ? "active" : "", onClick: () => setRecordView("average") }, "平均")
       ),
       recordView === "daily" && renderDaily(),
-      recordView === "calendar" && renderCalendarLog()
+      recordView === "calendar" && renderCalendarLog(),
+      recordView === "average" && renderAverage()
     );
   }
 
@@ -1484,6 +1486,20 @@ function App() {
     );
   }
 
+  function renderAverage() {
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(
+        "section",
+        { className: "sectionHead" },
+        React.createElement("h2", null, "平均"),
+        React.createElement("p", null, "期間ごとの平均")
+      ),
+      renderAveragePanel()
+    );
+  }
+
   function renderCalendarLog() {
     const maxDate = days[0]?.date || selectedDate;
     const minDate = days[days.length - 1]?.date || selectedDate;
@@ -1513,10 +1529,11 @@ function App() {
           })
         )
       ),
-      renderAveragePanel(),
+      renderDailySubhead("PFC", "選択日の摂取量"),
       renderTotals(),
       renderPfcGapGraph(),
       renderAiNotice(),
+      renderDailySubhead("記録", "選択日に食べたもの"),
       renderMealList("この日の記録はありません")
     );
   }
